@@ -1,41 +1,243 @@
 # Karo
 
-Karo is a browser-based multiplayer hex-board strategy game project. This repository currently implements **Milestone 1: Online Lobby Foundation**, **Milestone 2: Hex Board Renderer + Shared Board State**, and the first server-authoritative setup/turn-flow layer.
+Real-time multiplayer hex strategy board game built with React, TypeScript, ASP.NET Core, and SignalR.
 
-The app uses original Karo naming, theme, and UI. It does not use Catan branding, names, assets, exact board layout, copyrighted text, or direct rule wording.
+**Status:** MVP in active development.
+
+Karo is an original portfolio project with its own naming, UI, assets, and implementation. It is inspired by the general genre of resource-trading hex-board strategy games, but it does not use CATAN branding, official artwork, assets, copied rulebook text, or copyrighted presentation.
+
+## Overview
+
+Karo is a browser-based multiplayer board game where players create private rooms, invite friends, place Camps and Trails, collect supplies, trade through the bank and coastal harbors, use Development Cards, move the Warden, and compete for Victory Points.
+
+The current project is local-first and free to run. The backend keeps an in-memory authoritative game state, while the React client renders the shared board and sends player actions over SignalR. The goal is a playable, portfolio-quality multiplayer board game that can grow into a fuller production-style architecture over time.
 
 ## Tech Stack
 
-- Backend: ASP.NET Core Web API + SignalR
-- Frontend: React + TypeScript + Vite
-- Styling: Tailwind CSS
-- State: in-memory lobby and game state
-- Database: not used yet
+- Frontend: React, TypeScript, Vite
+- Styling: Tailwind CSS plus custom CSS for the board/game UI
+- Backend: ASP.NET Core Web API
+- Realtime: SignalR
+- State/storage: in-memory lobby and game state for the current MVP
+- Database: not implemented yet
+- Board rendering: stable polished 2D SVG renderer, experimental lazy-loaded 3D renderer
 
-## Local Run Instructions
+## Features
 
-Restore and build the API:
+### Multiplayer Lobby
+
+- ✅ Implemented: private rooms with readable room codes
+- ✅ Implemented: create room and join room flows
+- ✅ Implemented: live player list updates through SignalR
+- ✅ Implemented: host detection and host-only game start
+- ✅ Implemented: disconnect handling, host reassignment, and empty room cleanup
+- ⏳ Planned: durable reconnect support across server restarts
+
+### Board
+
+- ✅ Implemented: backend-generated shared 19-region hex board
+- ✅ Implemented: Wood, Clay, Wool, Grain, Stone, and Desert/None regions
+- ✅ Implemented: number tokens excluding 7
+- ✅ Implemented: deterministic board vertices and edges for Camps, Trails, Strongholds, and harbor access
+- ✅ Implemented: 9 fixed coastal harbor slots with randomized harbor types
+- ✅ Implemented: Warden starts on the Desert/None region and blocks production
+
+### Gameplay
+
+- ✅ Implemented: initial setup phase with forward then reverse placement order
+- ✅ Implemented: setup Camp placement, setup Trail placement, and one-empty-node Camp spacing
+- ✅ Implemented: second setup Camp grants starting supplies from adjacent productive regions
+- ✅ Implemented: normal turn roll gate
+- ✅ Implemented: server-authoritative 2d6 dice roll and supply production
+- ✅ Implemented: Camps produce 1 supply and Strongholds produce 2 supplies during production
+- ✅ Implemented: Warden flow on 7, including discard, move, victim selection, and random steal
+- ✅ Implemented: Victory Point scoring and win detection
+- 🟡 Partial: Strongest Guard is awarded after 3 played Knights
+- ⏳ Planned: paid normal-turn building actions for Trails, Camps, and Strongholds
+- ⏳ Planned: Longest Trail-style scoring
+- ⏳ Planned: polished match-end screen
+
+### Development Cards
+
+- ✅ Implemented: server-side shuffled Development Card deck
+- ✅ Implemented: Development Card purchase cost and private hands
+- ✅ Implemented: same-turn play restriction for action cards
+- ✅ Implemented: one non-Victory Point Development Card per turn
+- ✅ Implemented: Knight starts the Warden move/steal flow without discard
+- ✅ Implemented: Year of Plenty adds exactly 2 selected supplies
+- ✅ Implemented: Monopoly transfers the selected supply from opponents
+- ✅ Implemented: Victory Point cards stay hidden and count toward win calculation
+- 🟡 Partial: Road Building can be played and tracked as an active effect, but free Trail placement is not complete yet
+
+### Trading
+
+- ✅ Implemented: default 4:1 maritime/bank trade
+- ✅ Implemented: generic 3:1 harbor rate
+- ✅ Implemented: resource-specific 2:1 harbor rate
+- ✅ Implemented: harbor access through adjacent Camp or Stronghold vertices
+- ✅ Implemented: server-side trade validation and frontend disabled states
+- ⏳ Planned: player-to-player trading
+
+### Debug Mode
+
+- ✅ Implemented: developer-only debug panel in Vite development mode
+- ✅ Implemented: backend debug action guard for the Development environment
+- ✅ Implemented: resource, dice, Warden, setup, turn, Development Card, win-check, and match restart debug controls
+- ✅ Implemented: board debug overlays for tile, node, harbor, coordinate, and Warden inspection
+
+### 2D / 3D Board Renderers
+
+- ✅ Implemented: 2D SVG board renderer as the stable default
+- 🧪 Experimental: optional 3D renderer behind the `?board=3d` flag and board toggle
+- 🧪 Experimental: 3D renderer is correctness-focused and intentionally not final art
+- ✅ Implemented: fallback to 2D if the 3D renderer fails
+
+## Gameplay Summary
+
+Karo uses original terminology:
+
+- Trail = road equivalent
+- Camp = settlement equivalent
+- Stronghold = city equivalent
+- Supplies = resources
+- Warden = robber equivalent
+- Victory Points = win score
+
+Karo supplies:
+
+- Wood
+- Clay
+- Wool
+- Grain
+- Stone
+
+Current costs:
+
+- Trail = 1 Wood + 1 Clay
+- Camp = 1 Wood + 1 Clay + 1 Wool + 1 Grain
+- Stronghold = 2 Grain + 3 Stone
+- Development Card = 1 Wool + 1 Grain + 1 Stone
+
+### Setup Phase
+
+When the host starts a match, the backend creates the shared board and randomizes player order. Setup runs in two rounds:
+
+- Round 1: players place a free Camp and connected Trail in forward order.
+- Round 2: players place a free Camp and connected Trail in reverse order.
+- The second setup Camp grants starting supplies from every adjacent productive region.
+
+After setup completes, the first randomized player begins turn 1 and must roll before normal actions unlock.
+
+### Turn Flow
+
+Normal turns currently follow this flow:
+
+1. Current player rolls dice.
+2. Backend resolves production from matching number tokens.
+3. The Warden blocks production on its current region.
+4. After rolling, the current player may use available actions such as maritime trade or Development Cards.
+5. Current player ends the turn.
+6. The next player starts with the roll gate closed.
+
+### Development Cards
+
+Implemented Development Card types:
+
+- Knight
+- Road Building
+- Year of Plenty
+- Monopoly
+- Victory Point
+
+Development Cards cannot be bought or played during setup. The current MVP requires the player to roll before buying or playing Development Cards. Non-Victory Point action cards cannot be played on the same turn they were bought, and only one non-Victory Point Development Card can be played per turn.
+
+### Warden
+
+The Warden starts on the Desert/None region. A region occupied by the Warden produces no supplies.
+
+When a 7 is rolled:
+
+- No production happens.
+- Players with more than 7 supplies discard half, rounded down.
+- The current player moves the Warden to a different region.
+- If an opponent has a Camp or Stronghold adjacent to the new Warden region and has supplies, the current player chooses that victim.
+- The backend randomly transfers 1 supply from the victim to the current player.
+- Normal actions stay blocked until the Warden flow is resolved.
+
+Knight cards use the same Warden move and steal flow, but do not trigger the discard step.
+
+## Architecture
+
+The backend owns game state and rule validation. The frontend renders the current state, presents allowed actions, and sends player intent to the SignalR hub.
+
+```text
+Player action
+  -> SignalR hub
+  -> Game service validation
+  -> GameState update
+  -> Broadcast to room
+  -> React UI update
+```
+
+Important backend pieces:
+
+- `Karo.Api/Hubs/GameLobbyHub.cs`: SignalR hub actions and room broadcasts
+- `Karo.Api/Services/LobbyService.cs`: in-memory room/lobby management
+- `Karo.Api/Services/GameService.cs`: authoritative game rules and game state mutation
+- `Karo.Api/Services/BoardGenerator.cs`: shared board, vertices, edges, harbors, and ports
+- `Karo.Api/Services/DebugGameService.cs`: development-only debug actions
+- `Karo.Api/DTOs/LobbyDtos.cs`: SignalR DTOs sent to the client
+
+Important frontend pieces:
+
+- `Karo.Client/src/hooks/useLobbyConnection.ts`: SignalR connection and client actions
+- `Karo.Client/src/components/GamePage.tsx`: match screen composition
+- `Karo.Client/src/components/GameBoard.tsx`: stable 2D SVG board
+- `Karo.Client/src/components/BoardRendererSwitch.tsx`: 2D/3D renderer switch and fallback boundary
+- `Karo.Client/src/components/DevelopmentCardsPanel.tsx`: turn controls, utility drawers, Warden panel, and Development Cards
+- `Karo.Client/src/types/game.ts`: TypeScript game contracts
+
+## Local Setup
+
+### Prerequisites
+
+- .NET SDK with `net10.0` support
+- Node.js
+- pnpm
+
+If `pnpm` is not available, enable it with Corepack or install it globally:
+
+```powershell
+corepack enable
+```
+
+### Restore and Build
+
+From the repository root:
 
 ```powershell
 dotnet restore Karo.slnx --configfile NuGet.Config
 dotnet build Karo.slnx --no-restore
 ```
 
-Install and build the client:
+Install frontend dependencies:
 
 ```powershell
 cd Karo.Client
 pnpm install
-pnpm build
 ```
 
-Run the backend:
+### Run the Backend
+
+From the repository root:
 
 ```powershell
 dotnet run --project Karo.Api\Karo.Api.csproj --urls http://localhost:5193
 ```
 
-Run the frontend in another terminal:
+### Run the Frontend
+
+In another terminal:
 
 ```powershell
 cd Karo.Client
@@ -48,154 +250,26 @@ Local URLs:
 - Backend health: [http://localhost:5193/api/health](http://localhost:5193/api/health)
 - SignalR hub: `http://localhost:5193/hubs/lobby`
 
-## Milestone 1 Completed
+### Run Checks
 
-- Create room
-- Join room by 6-character room code
-- Live player list
-- Host detection
-- Host-only start game action
-- Start game event broadcast through SignalR
-- Game screen transition after start
-- Disconnect handling
-- Host reassignment when host disconnects
-- Empty room cleanup
-- Clear lobby errors for missing name, invalid room code, room already in game, and non-host start attempts
+Backend rule harness:
 
-## Milestone 2 Completed
+```powershell
+dotnet run --no-restore --configuration Release --project Karo.Tests\Karo.Tests.csproj -p:UseSharedCompilation=false
+```
 
-- Shared generated board
-- Compact 19-tile radius-2 axial hex map
-- Backend-authoritative board generation
-- Synchronized board for all players through the `GameStarted` SignalR event
-- React SVG board renderer
-- Distinct resource tiles for Wood, Clay, Wool, Grain, Stone, and neutral Desert
-- Number tokens on producing tiles, excluding 7
-- Game screen with match header, board area, player panel, and development-card panel
-- Deterministic board vertices and edges for Camps, Strongholds, Trails, harbor access, and setup placement
-- 9 deterministic coastal harbor slots attached to valid board vertices
-- 9 visible coastal harbors around the shared board
+Frontend build:
 
-## Resource Economy
-
-Final Karo supplies:
-
-- Wood
-- Clay
-- Wool
-- Grain
-- Stone
-
-Official-style Karo costs:
-
-- Trail: 1 Wood + 1 Clay
-- Camp: 1 Wood + 1 Clay + 1 Wool + 1 Grain
-- Stronghold: 2 Grain + 3 Stone
-- Development Card: 1 Wool + 1 Grain + 1 Stone
-
-## Harbors And Maritime Trading
-
-The board topology includes 9 fixed coastal `HarborSlot` records. Each slot has a stable slot ID, two adjacent coastal vertex IDs, a coastal edge ID, tile edge coordinates, board-space render coordinates, and orientation. During backend board generation, Karo shuffles the harbor assignment list once per match and assigns exactly one Wood, Clay, Wool, Grain, and Stone 2:1 harbor plus four Generic 3:1 harbors to those fixed slots. All clients receive the same assigned `harborType` and `tradeRate` values from the shared board state. The renderer places harbor tokens in the surrounding water and connects each harbor back to its coastal nodes.
-
-Karo boards include 9 backend-generated coastal harbors:
-
-- 1 Wood 2:1 harbor
-- 1 Clay 2:1 harbor
-- 1 Wool 2:1 harbor
-- 1 Grain 2:1 harbor
-- 1 Stone 2:1 harbor
-- 4 generic 3:1 harbors
-
-Harbors are stored on the shared `BoardState` with a coastal tile edge and two adjacent board vertex IDs. A player gains access when they own a Camp or Stronghold on one of those adjacent vertices. Trails do not grant harbor access, and non-adjacent coastal structures do not count. The current best maritime trade rate is calculated server-side for every resource:
-
-- Specific resource harbor: 2:1 for that resource
-- Generic harbor: 3:1 for any resource
-- Default bank: 4:1
-
-`MaritimeTrade(roomCode, giveResource, receiveResource)` is server-authoritative and is available only during normal turns after the current player has rolled. Trading is blocked during setup, while Warden actions are pending, for non-current players, for same-resource trades, and when the player lacks the required supplies. The match UI shows harbor markers around the board and a Maritime Trade panel with per-resource rates, source labels, disabled states when supplies are insufficient, and the player's accessible harbor slots.
-
-## Development Cards
-
-Implemented card types:
-
-- Knight
-- Road Building
-- Year of Plenty
-- Monopoly
-- Victory Point
-
-Development Card cost:
-
-- 1 Wool
-- 1 Grain
-- 1 Stone
-
-The backend creates a shuffled 25-card development deck when a match starts:
-
-- 14 Knight
-- 2 Road Building
-- 2 Year of Plenty
-- 2 Monopoly
-- 5 Victory Point
-
-Development card hands are private. A player can see their own card types, while opponents see only card count and played Knight count. Victory Point cards count as hidden points for the owner and reveal through win/match-end state.
-
-Current Karo MVP Development Card rules:
-
-- Development Cards cannot be bought or played during setup.
-- Buying a Development Card is allowed only on the current player's normal turn after rolling.
-- Playing Knight, Road Building, Year of Plenty, or Monopoly also requires the current player to roll first.
-- Non-Victory Point cards cannot be played on the same turn they were bought.
-- A player can play at most one non-Victory Point card per turn.
-- Victory Point cards are passive, hidden, do not use the play action, and count toward the owner's win calculation.
-
-## Setup And Turn Flow
-
-Implemented setup flow:
-
-- Backend randomizes player order once when the host starts a match.
-- Setup round 1 uses forward order.
-- Setup round 2 uses reverse order.
-- Each setup turn requires a free Camp, then a connected free Trail.
-- Setup Camps must use empty nodes and follow the one-empty-node distance rule.
-- A player's second setup Camp grants starting supplies from adjacent producing regions, excluding Desert and the blocked Warden region.
-- After setup, the first randomized player begins turn 1 with no dice roll yet.
-
-Normal-turn gating:
-
-- The current player must roll dice before ending the turn, trading with the bank, or using development-card actions.
-- Dice rolls are server-authoritative 2d6 rolls.
-- Resource production is calculated on the backend from the shared board state.
-- Camps produce 1 supply and Strongholds produce 2 supplies from matching unblocked producing regions.
-- The next player starts with the roll gate closed again.
-
-## Warden
-
-The Warden is the Karo board blocker:
-
-- The Warden starts on the Desert/None region.
-- Regions occupied by the Warden do not produce supplies.
-- Rolling 7 triggers the Warden flow instead of normal production.
-- Players with more than 7 supplies must discard half of their supplies, rounded down.
-- After required discards are complete, the current player moves the Warden to a different region.
-- If opponents with adjacent Camps or Strongholds have supplies, the current player chooses one eligible victim and steals 1 random supply.
-- If no eligible victim is available, the Warden flow completes automatically.
-- Normal actions and End Turn remain blocked until discard, move, and steal resolution is complete.
-- Knight cards use the same Warden move and steal flow without triggering the discard step.
+```powershell
+cd Karo.Client
+pnpm build
+```
 
 ## Debug Mode
 
-Debug Mode is for local development only. It is disabled by default and backend debug actions are rejected unless `ASPNETCORE_ENVIRONMENT=Development`.
+Debug Mode is for local development only. The frontend only shows it in Vite development builds, and the backend rejects debug actions unless the API is running in the Development environment.
 
-To enable it locally:
-
-```powershell
-dotnet run --project Karo.Api\Karo.Api.csproj --urls http://localhost:5193
-cd Karo.Client
-pnpm dev
-```
-
-Open the frontend with:
+Enable Debug Mode with:
 
 ```text
 http://127.0.0.1:5173/?debug=true
@@ -203,104 +277,134 @@ http://127.0.0.1:5173/?debug=true
 
 You can also set `localStorage.karoDebugMode=true` in the browser. Use `?debug=false` or the panel close button to disable it.
 
-Debug Mode can:
+Debug Mode currently helps test:
 
-- Add +1 or +5 resources to the selected player
-- Set testing resources or clear resources
-- Force a player's turn
-- Force dice results from 2 through 12, including 7
-- Reset roll state for the current turn
-- Move the Warden or clear pending Warden state
-- Skip the setup phase for fast local testing
-- Force the setup placement step for a selected player
-- Inspect tile, node, harbor, coordinate, Warden, and harbor-edge labels on the board
-- Give or clear Development Cards
-- Reset the Development Card play limit
-- Load the remaining Development Card deck composition
-- Set victory points, trigger win checks, and restart the match with the same players
-- Inspect harbor assignments, accessible harbors, and current best maritime trade rates
+- adding, setting, and clearing supplies
+- forcing dice results, including 7
+- resetting roll state
+- forcing the current player
+- moving or clearing the Warden
+- skipping setup or forcing setup steps
+- giving and clearing Development Cards
+- resetting Development Card play limits
+- inspecting Development Card deck composition
+- setting Victory Points and triggering win checks
+- restarting the match with the same players
+- inspecting board IDs, nodes, harbors, Warden state, and trade rates
 
-Debug Mode is not for production, public play, or deployment. The frontend only renders the debug panel in Vite development builds, and the backend enforces the Development environment for every debug SignalR action.
+## 2D and 3D Board
 
-## Experimental 3D Board Renderer
+The 2D SVG board is the stable default and the supported board renderer for the current MVP.
 
-Karo includes an experimental visual-only 3D board renderer. The existing SVG board is the main supported board presentation, remains the default, and is the safe fallback if 3D is unavailable or fails.
+The 3D renderer is experimental. It uses the same backend-generated board state and is kept behind an explicit toggle for future visual exploration.
 
-Enable the 3D board locally with:
+Open 3D directly with:
 
 ```text
 http://127.0.0.1:5173/?board=3d
 ```
 
-You can also switch between `2D` and `3D` from the board toolbar during a match. Debug Mode shows the active renderer in the Board section.
+During a match, use the board toolbar to switch between `2D` and `3D Exp.`. If the 3D renderer fails, the app falls back to the 2D board.
 
-The 3D renderer:
+## Roadmap
 
-- Uses the same backend-generated `GameState` and board topology as the 2D board
-- Renders the 19 regions as a minimal, correctness-focused set of simple hex prisms
-- Shows number tokens, harbors, the Warden, Trails, Camps, and Strongholds
-- Uses backend harbor slot positions for coastal harbor markers
-- Supports current setup placement and Warden tile selection through the existing handlers
-- Is lazy-loaded so the default 2D experience does not load the Three.js stack
+### Phase 1 — Core Multiplayer Foundation
 
-Current limitations:
+- ✅ Lobby rooms
+- ✅ Live player sync
+- ✅ Host start
+- ✅ Shared board state
 
-- This is an experimental visual direction, not a gameplay rewrite.
-- 2D remains the supported and most polished renderer.
-- 3D is intentionally kept minimal for future visual exploration.
-- 3D avoids decorative water, tray, and island-base experiments for now.
-- 3D models are simple geometric placeholders, not final art assets.
+### Phase 2 — Base Game Rules
 
-## Not Implemented Yet
+- ✅ Setup phase
+- ✅ Turn flow
+- ✅ Dice production
+- 🟡 Building validation: setup placement implemented; paid normal-turn building planned
+- ✅ Maritime trading
+- ✅ Warden on 7
+- ✅ Development Cards, with Road Building placement still partial
 
-- Player-to-player trading
-- Paid normal-turn building actions for Trails, Camps, and Strongholds
-- Full Road Building Trail placement
-- Authentication
-- Database persistence
-- Bots
+### Phase 3 — Rule Completion
+
+- ✅ Strongest Guard after 3 Knights
+- ⏳ Longest Trail
+- ✅ 10 Victory Point win validation
+- ⏳ Match end screen
+
+### Phase 4 — UX / Polish
+
+- 🟡 Cleaner action panels
+- 🟡 Board interaction polish
+- ⏳ Animations and feedback
+- ⏳ Screenshots
+
+### Phase 5 — Persistence / Portfolio Polish
+
+- ⏳ SQL Server persistence if desired
+- ⏳ Match history
+- ⏳ Player stats
+- 🟡 Tests: backend rule harness exists; broader automated test coverage planned
+- ⏳ Architecture docs
+
+### Phase 6 — Future Ideas
+
+- ⏳ Bots
+- ⏳ Spectator mode
+- ⏳ Reconnect support
+- ⏳ Replay/event history
+- ⏳ Custom Karo cards
+- ⏳ Expansions/custom modes
+
+## Collaboration Guide
+
+Suggested branch naming:
+
+- `feature/...`
+- `fix/...`
+- `ui/...`
+- `docs/...`
+
+PR checklist:
+
+- App builds successfully.
+- Backend validation exists for new rules.
+- Frontend disabled states match backend rules.
+- SignalR room/game update flow still works.
+- README is updated when behavior changes.
+- Screenshots are included for UI changes when useful.
+- New terminology follows Karo naming: Trail, Camp, Stronghold, Supplies, Warden, Victory Points.
 
 ## Known Limitations
 
-- No official artwork/assets are used.
-- This is a local-first MVP with in-memory state.
-- Advanced rule parity is incomplete until paid building, player-to-player trading, and full Road Building Trail placement are implemented.
-- Road Building can be played and tracked as an active effect, but free Trail placement still returns a clear limitation error.
-- Knight uses the full Warden move/steal flow without the roll-7 discard step.
-- Harbor access is fully modeled and tested through board vertices.
+- Game state is in memory and resets when the server restarts.
+- No production deployment is configured yet.
+- No database persistence yet.
+- No authentication yet.
+- Refresh/reconnect behavior is limited by the current in-memory lobby architecture.
+- Paid normal-turn building actions are not complete yet.
+- Road Building free Trail placement is not complete yet.
+- Player-to-player trading is not implemented yet.
+- The 3D board renderer is experimental and not final art.
+- Some edge cases may still be incomplete as the MVP evolves.
 
-## Manual Test Checklist
+## Legal Note
 
-- Start a match with 2 players.
-- Complete setup by placing Camp + Trail for each player in forward order, then reverse order.
-- Confirm second setup Camps grant starting supplies.
-- Confirm normal actions are disabled before rolling.
-- Roll dice and confirm normal turn actions unlock.
-- Force or roll 7 and confirm Warden discard, move, and steal resolution blocks normal actions until complete.
-- Buy a Development Card.
-- Confirm opponents cannot see the exact card type.
-- Play Year of Plenty.
-- Play Monopoly.
-- Play Knight and confirm it starts the Warden move/steal flow without discards.
-- Confirm Strongest Guard is awarded after 3 Knights.
-- Confirm a Victory Point card can help reach 10 Victory Points and trigger a win.
-- Confirm the board displays 9 coastal harbors.
-- Use the Maritime Trade panel to trade 4:1 without a harbor.
-- In backend tests, confirm generic 3:1 and specific 2:1 harbor rates apply from adjacent Camp/Stronghold vertices.
+Karo is an original portfolio project inspired by the general genre of resource-trading hex-board strategy games. It does not use CATAN branding, official artwork, assets, or copied rulebook text.
 
 ## Project Structure
 
 ```text
 Karo.Api/
   DTOs/       Lobby and game DTOs sent to the client
-  Hubs/       GameLobbyHub SignalR endpoint
+  Hubs/       SignalR lobby/game hub
   Models/     Room, player, board, tile, and game state models
-  Services/   In-memory LobbyService, GameService, DebugGameService, and BoardGenerator
+  Services/   Lobby, game rules, board generation, and debug services
 
 Karo.Client/
-  src/components/  Landing, lobby, match, player panel, and SVG board components
-  src/hooks/       useLobbyConnection SignalR hook and debug activation hook
-  src/types/       TypeScript lobby, game, and debug contracts
+  src/components/  Landing, lobby, match, board, player, debug, and action UI
+  src/hooks/       SignalR connection, debug mode, and renderer mode hooks
+  src/types/       TypeScript lobby, game, debug, and renderer contracts
 
 Karo.Tests/
   Program.cs       Lightweight backend rule checks
