@@ -32,7 +32,7 @@ public sealed class GameLobbyHub : Hub
         }
         catch (LobbyException ex)
         {
-            throw new HubException(ex.Message);
+            throw HubErrorSerializer.ToHubException(ex);
         }
     }
 
@@ -50,7 +50,7 @@ public sealed class GameLobbyHub : Hub
         }
         catch (LobbyException ex)
         {
-            throw new HubException(ex.Message);
+            throw HubErrorSerializer.ToHubException(ex);
         }
     }
 
@@ -65,7 +65,7 @@ public sealed class GameLobbyHub : Hub
         }
         catch (LobbyException ex)
         {
-            throw new HubException(ex.Message);
+            throw HubErrorSerializer.ToHubException(ex);
         }
     }
 
@@ -275,7 +275,7 @@ public sealed class GameLobbyHub : Hub
         }
         catch (GameRuleException ex)
         {
-            throw new HubException(ex.Message);
+            throw HubErrorSerializer.ToHubException(ex);
         }
     }
 
@@ -319,7 +319,7 @@ public sealed class GameLobbyHub : Hub
         }
         catch (GameRuleException ex)
         {
-            throw new HubException(ex.Message);
+            throw HubErrorSerializer.ToHubException(ex);
         }
     }
 
@@ -333,7 +333,7 @@ public sealed class GameLobbyHub : Hub
         }
         catch (GameRuleException ex)
         {
-            throw new HubException(ex.Message);
+            throw HubErrorSerializer.ToHubException(ex);
         }
     }
 

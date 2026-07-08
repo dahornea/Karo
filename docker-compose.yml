@@ -1,0 +1,24 @@
+services:
+  karo-api:
+    build:
+      context: .
+      dockerfile: Karo.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      Karo__Cors__AllowedOrigins__0: http://localhost:5173
+      Karo__Cors__AllowedOrigins__1: http://127.0.0.1:5173
+    ports:
+      - "5000:8080"
+
+  karo-client:
+    build:
+      context: ./Karo.Client
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:5000
+      VITE_SIGNALR_HUB_URL: http://localhost:5000/hubs/lobby
+    depends_on:
+      - karo-api
+    ports:
+      - "5173:5173"

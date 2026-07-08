@@ -200,6 +200,8 @@ export function DebugModePanel({
                   <b>{game.pendingWardenDiscards.map((discard) => `${shortId(discard.playerId)}:${discard.requiredAmount}`).join(', ') || 'None'}</b>
                   <span>Victims</span>
                   <b>{game.wardenVictimOptions.map(shortId).join(', ') || 'None'}</b>
+                  <span>Largest Army</span>
+                  <b>{game.largestArmyPlayerId ? `${shortId(game.largestArmyPlayerId)}:${game.largestArmyKnightCount}` : 'None'}</b>
                   <span>Pending</span>
                   <b>{pendingAction ?? 'None'}</b>
                 </div>
@@ -329,6 +331,7 @@ export function DebugModePanel({
                         .map((type) => `${formatCardType(type)} ${deckComposition[type] ?? 0}`)
                         .join(' | ')
                     : `${game.developmentDeckCount} cards remaining`}
+                  {' '}| Knights played: {targetPlayer?.playedKnightCount ?? 0}
                 </p>
                 <div className="debug-card-list">
                   {(targetPlayer?.developmentCards ?? []).map((card) => (

@@ -134,6 +134,8 @@ public sealed class GameState
     public List<WardenDiscardRequirement> PendingWardenDiscards { get; } = new();
     public List<string> WardenVictimOptions { get; } = new();
     public string? LargestArmyPlayerId { get; set; }
+    public int LargestArmyKnightCount { get; set; }
+    public int? LargestArmyAwardedAtTurn { get; set; }
     public string? WinnerPlayerId { get; set; }
     public DateTimeOffset? FinishedAt { get; set; }
 
@@ -268,9 +270,14 @@ public sealed record GameLogEntry(
 
 public sealed class GameRuleException : Exception
 {
-    public GameRuleException(string message)
-        : base(message)
+    public string ErrorCode { get; }
+
+    public string UserMessage => Message;
+
+    public GameRuleException(string userMessage, string? errorCode = null)
+        : base(userMessage)
     {
+        ErrorCode = errorCode ?? UserFacingErrorCodes.FromMessage(userMessage);
     }
 }
 

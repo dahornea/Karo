@@ -7,10 +7,13 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DevelopmentCardType, DevelopmentDeckComposition, ResourceType, SetupStep } from '../types/game';
 import type { GameStartedEvent, JoinRoomResult, Room } from '../types/lobby';
+import { getFriendlyGameError, makeFriendlyGameError, type FriendlyGameError } from '../utils/gameErrors';
 
 export type ConnectionPhase = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
-const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:5193';
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:5193')
+  .replace(/\/$/, '');
+const signalRHubUrl = import.meta.env.VITE_SIGNALR_HUB_URL ?? `${apiBaseUrl}/hubs/lobby`;
 
 export function useLobbyConnection() {
   const connectionRef = useRef<HubConnection | null>(null);
@@ -19,11 +22,11 @@ export function useLobbyConnection() {
   const [room, setRoom] = useState<Room | null>(null);
   const [gameStarted, setGameStarted] = useState<GameStartedEvent | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<FriendlyGameError | null>(null);
 
   useEffect(() => {
     const connection = new HubConnectionBuilder()
-      .withUrl(`${apiUrl}/hubs/lobby`)
+      .withUrl(signalRHubUrl)
       .withAutomaticReconnect()
       .configureLogging(LogLevel.Warning)
       .build();
@@ -57,7 +60,7 @@ export function useLobbyConnection() {
       })
       .catch(() => {
         setConnectionPhase('disconnected');
-        setError('Could not connect to the Karo server.');
+        setError(makeFriendlyGameError('Connection unavailable', 'Could not connect to the Karo server.'));
       });
 
     return () => {
@@ -65,12 +68,16 @@ export function useLobbyConnection() {
     };
   }, []);
 
+  const clearError = useCallback(() => setError(null), []);
+
   const invoke = useCallback(
     async <T,>(actionName: string, methodName: string, ...args: unknown[]): Promise<T> => {
       const connection = connectionRef.current;
 
       if (!connection || connection.state !== HubConnectionState.Connected) {
-        throw new Error('The lobby server is not connected yet.');
+        const connectionError = makeFriendlyGameError('Connection unavailable', 'The Karo server is not connected yet.');
+        setError(connectionError);
+        throw new Error(connectionError.message);
       }
 
       setPendingAction(actionName);
@@ -79,10 +86,7 @@ export function useLobbyConnection() {
       try {
         return await connection.invoke<T>(methodName, ...args);
       } catch (exception) {
-        const message = exception instanceof Error
-          ? exception.message.replace('HubException: ', '')
-          : 'That lobby action could not be completed.';
-        setError(message);
+        setError(getFriendlyGameError(exception));
         throw exception;
       } finally {
         setPendingAction(null);
@@ -125,7 +129,7 @@ export function useLobbyConnection() {
     gameStarted,
     pendingAction,
     error,
-    clearError: () => setError(null),
+    clearError,
     createRoom,
     joinRoom,
     startGame,

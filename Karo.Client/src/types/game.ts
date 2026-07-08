@@ -164,6 +164,8 @@ export interface GameState {
   pendingWardenDiscards: WardenDiscardRequirement[];
   wardenVictimOptions: string[];
   largestArmyPlayerId: string | null;
+  largestArmyKnightCount: number;
+  largestArmyAwardedAtTurn: number | null;
   winnerPlayerId: string | null;
   activeDevelopmentCardEffect: ActiveDevelopmentCardEffect | null;
   log: GameLogEntry[];

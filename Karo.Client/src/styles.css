@@ -86,10 +86,61 @@ button:disabled {
 
 .toast {
   top: 64px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   max-width: min(420px, calc(100vw - 36px));
-  padding: 11px 14px;
+  padding: 12px 12px 12px 15px;
+  border-radius: 16px;
   color: #651f17;
   text-align: left;
+}
+
+.toast-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.toast-copy strong {
+  color: #593221;
+  font-size: 0.88rem;
+  line-height: 1.15;
+}
+
+.toast-copy span {
+  color: #76372a;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.toast-dismiss {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(101, 31, 23, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #76372a;
+}
+
+.toast-dismiss:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.toast-debug {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.toast-debug code {
+  display: block;
+  margin-top: 4px;
+  max-width: 340px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .landing-screen,
