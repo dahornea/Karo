@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Karo.Api/Karo.Api.csproj" />
+  <Project Path="Karo.Tests/Karo.Tests.csproj" />
+</Solution>

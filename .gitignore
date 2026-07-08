@@ -1,0 +1,17 @@
+# .NET
+bin/
+obj/
+
+# Frontend
+node_modules/
+dist/
+.pnpm-store/
+
+# Local environment
+.env
+.env.*
+.runlogs/
+
+# IDE
+.vs/
+.vscode/
