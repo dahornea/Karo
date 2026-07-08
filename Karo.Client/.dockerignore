@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+logs
+.git
+.vs
+.idea
+
+*.tmp
+*.log
+.env.local
+.env.*.local

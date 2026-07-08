@@ -44,7 +44,7 @@ export function PlayerPanel({ game, playerId }: PlayerPanelProps) {
                   {player.hasLargestArmy ? (
                     <span className="mini-badge">
                       <Shield size={13} />
-                      Guard
+                      Largest Army
                     </span>
                   ) : null}
                 </div>
@@ -61,6 +61,10 @@ export function PlayerPanel({ game, playerId }: PlayerPanelProps) {
                 <span>
                   <b>{player.developmentCardCount}</b>
                   cards
+                </span>
+                <span>
+                  <b>{player.playedKnightCount}</b>
+                  Knights
                 </span>
               </div>
             </div>

@@ -26,8 +26,13 @@ public sealed class Player
 
 public sealed class LobbyException : Exception
 {
-    public LobbyException(string message)
-        : base(message)
+    public string ErrorCode { get; }
+
+    public string UserMessage => Message;
+
+    public LobbyException(string userMessage, string? errorCode = null)
+        : base(userMessage)
     {
+        ErrorCode = errorCode ?? UserFacingErrorCodes.FromMessage(userMessage);
     }
 }

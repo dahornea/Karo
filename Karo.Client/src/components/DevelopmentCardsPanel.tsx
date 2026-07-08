@@ -340,6 +340,12 @@ function DevelopmentCardsPanel({
 
     return resources.every((resource) => (me.supplies[resource] ?? 0) >= (developmentCardCost[resource] ?? 0));
   }, [me]);
+  const buyCardReason = developmentLockReason
+    ?? (game.developmentDeckCount === 0
+      ? 'The Development Card deck is empty.'
+      : !canAffordDevelopmentCard
+        ? 'Need 1 Wool + 1 Grain + 1 Stone.'
+        : null);
 
   if (!me) {
     return null;
@@ -378,7 +384,7 @@ function DevelopmentCardsPanel({
         </button>
       </div>
       <p className="cost-caption">
-        {developmentLockReason ?? 'Cost: 1 Wool + 1 Grain + 1 Stone'}
+        {buyCardReason ?? 'Cost: 1 Wool + 1 Grain + 1 Stone'}
       </p>
 
       <div className="development-card-list">
@@ -390,6 +396,7 @@ function DevelopmentCardsPanel({
               actionsUnlocked={actionsUnlocked}
               card={card}
               game={game}
+              hasPlayedDevelopmentCardThisTurn={me.hasPlayedDevelopmentCardThisTurn}
               key={card.cardId}
               lockReason={developmentLockReason}
               monopolyResource={monopolyResource}
@@ -579,6 +586,7 @@ interface DevelopmentCardItemProps {
   card: PlayerDevelopmentCard;
   game: GameState;
   actionsUnlocked: boolean;
+  hasPlayedDevelopmentCardThisTurn: boolean;
   lockReason: string | null;
   pendingAction: string | null;
   yearPickOne: ResourceType;
@@ -597,6 +605,7 @@ function DevelopmentCardItem({
   card,
   game,
   actionsUnlocked,
+  hasPlayedDevelopmentCardThisTurn,
   lockReason,
   pendingAction,
   yearPickOne,
@@ -612,8 +621,12 @@ function DevelopmentCardItem({
 }: DevelopmentCardItemProps) {
   const type = card.type ?? 'VictoryPoint';
   const details = cardText[type];
-  const canPlay = actionsUnlocked && card.status === 'Playable' && !pendingAction && type !== 'VictoryPoint';
-  const displayStatus = getCardDisplayStatus(card, type, canPlay, lockReason);
+  const canPlay = actionsUnlocked
+    && card.status === 'Playable'
+    && !hasPlayedDevelopmentCardThisTurn
+    && !pendingAction
+    && type !== 'VictoryPoint';
+  const displayStatus = getCardDisplayStatus(card, type, canPlay, hasPlayedDevelopmentCardThisTurn, lockReason);
 
   return (
     <article className={`development-card development-card-${type.toLowerCase()}`}>
@@ -630,7 +643,7 @@ function DevelopmentCardItem({
         <div className="card-controls two-selects">
           <ResourceSelect value={yearPickOne} onChange={setYearPickOne} />
           <ResourceSelect value={yearPickTwo} onChange={setYearPickTwo} />
-          <button type="button" disabled={!canPlay} onClick={() => void onPlayYearOfPlenty(game.roomCode, card.cardId, [yearPickOne, yearPickTwo])}>
+          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onPlayYearOfPlenty(game.roomCode, card.cardId, [yearPickOne, yearPickTwo])}>
             Play
           </button>
         </div>
@@ -639,7 +652,7 @@ function DevelopmentCardItem({
       {type === 'Monopoly' ? (
         <div className="card-controls">
           <ResourceSelect value={monopolyResource} onChange={setMonopolyResource} />
-          <button type="button" disabled={!canPlay} onClick={() => void onPlayMonopoly(game.roomCode, card.cardId, monopolyResource)}>
+          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onPlayMonopoly(game.roomCode, card.cardId, monopolyResource)}>
             Play
           </button>
         </div>
@@ -647,7 +660,7 @@ function DevelopmentCardItem({
 
       {type === 'Knight' ? (
         <div className="card-controls">
-          <button type="button" disabled={!canPlay} onClick={() => void onPlayKnight(game.roomCode, card.cardId, '', null)}>
+          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onPlayKnight(game.roomCode, card.cardId, '', null)}>
             Play
           </button>
         </div>
@@ -655,7 +668,7 @@ function DevelopmentCardItem({
 
       {type === 'RoadBuilding' ? (
         <div className="card-controls">
-          <button type="button" disabled={!canPlay} onClick={() => void onStartRoadBuilding(game.roomCode, card.cardId)}>
+          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onStartRoadBuilding(game.roomCode, card.cardId)}>
             Start
           </button>
         </div>
@@ -682,6 +695,7 @@ function getCardDisplayStatus(
   card: PlayerDevelopmentCard,
   type: DevelopmentCardType,
   canPlay: boolean,
+  hasPlayedDevelopmentCardThisTurn: boolean,
   lockReason: string | null
 ) {
   if (type === 'VictoryPoint') {
@@ -698,6 +712,10 @@ function getCardDisplayStatus(
 
   if (canPlay) {
     return 'Playable';
+  }
+
+  if (hasPlayedDevelopmentCardThisTurn) {
+    return 'Card limit used';
   }
 
   return lockReason ?? formatStatus(card.status);

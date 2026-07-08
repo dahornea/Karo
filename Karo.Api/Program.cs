@@ -4,13 +4,17 @@ using Karo.Api.Hubs;
 using Karo.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+var allowedCorsOrigins = builder.Configuration
+    .GetSection("Karo:Cors:AllowedOrigins")
+    .Get<string[]>()
+    ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("KaroClient", policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+            .WithOrigins(allowedCorsOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();

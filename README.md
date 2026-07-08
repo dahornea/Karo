@@ -21,6 +21,7 @@ The current project is local-first and free to run. The backend keeps an in-memo
 - State/storage: in-memory lobby and game state for the current MVP
 - Database: not implemented yet
 - Board rendering: stable polished 2D SVG renderer, experimental lazy-loaded 3D renderer
+- Local development: Docker Compose or manual .NET/Node tooling
 
 ## Features
 
@@ -52,7 +53,8 @@ The current project is local-first and free to run. The backend keeps an in-memo
 - ✅ Implemented: Camps produce 1 supply and Strongholds produce 2 supplies during production
 - ✅ Implemented: Warden flow on 7, including discard, move, victim selection, and random steal
 - ✅ Implemented: Victory Point scoring and win detection
-- 🟡 Partial: Strongest Guard is awarded after 3 played Knights
+- ✅ Implemented: Largest Army awards +2 VP after 3 played Knights and transfers only to a strict leader
+- ✅ Implemented: user-friendly validation messages for expected rule failures
 - ⏳ Planned: paid normal-turn building actions for Trails, Camps, and Strongholds
 - ⏳ Planned: Longest Trail-style scoring
 - ⏳ Planned: polished match-end screen
@@ -91,6 +93,12 @@ The current project is local-first and free to run. The backend keeps an in-memo
 - 🧪 Experimental: optional 3D renderer behind the `?board=3d` flag and board toggle
 - 🧪 Experimental: 3D renderer is correctness-focused and intentionally not final art
 - ✅ Implemented: fallback to 2D if the 3D renderer fails
+
+### Developer Experience
+
+- ✅ Implemented: Docker Compose local development stack
+- ✅ Implemented: containerized API and Vite client startup with one command
+- ✅ Implemented: Docker-friendly SignalR hub URL and configurable API CORS origins
 
 ## Gameplay Summary
 
@@ -151,6 +159,8 @@ Implemented Development Card types:
 
 Development Cards cannot be bought or played during setup. The current MVP requires the player to roll before buying or playing Development Cards. Non-Victory Point action cards cannot be played on the same turn they were bought, and only one non-Victory Point Development Card can be played per turn.
 
+Largest Army scoring is tied to played Knight cards. The first player with at least 3 played Knights gains +2 Victory Points. Another player can take Largest Army only by playing strictly more Knights than the current holder; ties do not transfer the bonus. Bought but unplayed Knight cards do not count.
+
 ### Warden
 
 The Warden starts on the Desert/None region. A region occupied by the Warden produces no supplies.
@@ -187,6 +197,7 @@ Important backend pieces:
 - `Karo.Api/Services/BoardGenerator.cs`: shared board, vertices, edges, harbors, and ports
 - `Karo.Api/Services/DebugGameService.cs`: development-only debug actions
 - `Karo.Api/DTOs/LobbyDtos.cs`: SignalR DTOs sent to the client
+- `Karo.Api/Dockerfile`: backend container build for local Docker runs
 
 Important frontend pieces:
 
@@ -196,8 +207,54 @@ Important frontend pieces:
 - `Karo.Client/src/components/BoardRendererSwitch.tsx`: 2D/3D renderer switch and fallback boundary
 - `Karo.Client/src/components/DevelopmentCardsPanel.tsx`: turn controls, utility drawers, Warden panel, and Development Cards
 - `Karo.Client/src/types/game.ts`: TypeScript game contracts
+- `Karo.Client/src/utils/gameErrors.ts`: user-facing SignalR/game validation error mapping
+- `Karo.Client/Dockerfile`: frontend Vite container for local Docker runs
+- `docker-compose.yml`: one-command full-stack local setup
+
+## Running with Docker
+
+Docker is the recommended setup for new contributors because it does not require a local .NET SDK or local Node.js installation.
+
+Prerequisite:
+
+- Docker Desktop
+
+From the repository root:
+
+```powershell
+docker compose up --build
+```
+
+Local URLs:
+
+- Frontend: [http://localhost:5173](http://localhost:5173)
+- Backend: [http://localhost:5000](http://localhost:5000)
+- Backend health: [http://localhost:5000/api/health](http://localhost:5000/api/health)
+- SignalR hub: `http://localhost:5000/hubs/lobby`
+
+Stop the stack:
+
+```powershell
+docker compose down
+```
+
+Rebuild from a clean image cache:
+
+```powershell
+docker compose build --no-cache
+```
+
+Follow logs:
+
+```powershell
+docker compose logs -f
+```
+
+The Docker frontend is configured to call the backend through the browser-facing URL `http://localhost:5000`, which keeps SignalR/WebSockets working from the host browser.
 
 ## Local Setup
+
+Use this section if you prefer to run the apps directly on your machine instead of Docker.
 
 ### Prerequisites
 
@@ -265,6 +322,15 @@ cd Karo.Client
 pnpm build
 ```
 
+## Docker Troubleshooting
+
+- Port 5000 already in use: stop the process using that port or change the `5000:8080` mapping in `docker-compose.yml`.
+- Port 5173 already in use: stop the existing Vite server or change the `5173:5173` mapping in `docker-compose.yml`.
+- Docker Desktop not running: start Docker Desktop, wait for the engine to be ready, then rerun `docker compose up --build`.
+- Frontend cannot connect to backend: confirm [http://localhost:5000/api/health](http://localhost:5000/api/health) responds and that `VITE_SIGNALR_HUB_URL` points to `http://localhost:5000/hubs/lobby`.
+- SignalR connection issues: make sure the frontend is opened at `http://localhost:5173`; the API CORS policy allows `localhost:5173` and `127.0.0.1:5173` with credentials.
+- Stale Docker build cache: run `docker compose build --no-cache`, then `docker compose up`.
+
 ## Debug Mode
 
 Debug Mode is for local development only. The frontend only shows it in Vite development builds, and the backend rejects debug actions unless the API is running in the Development environment.
@@ -327,7 +393,7 @@ During a match, use the board toolbar to switch between `2D` and `3D Exp.`. If t
 
 ### Phase 3 — Rule Completion
 
-- ✅ Strongest Guard after 3 Knights
+- ✅ Largest Army after 3 played Knights
 - ⏳ Longest Trail
 - ✅ 10 Victory Point win validation
 - ⏳ Match end screen
@@ -336,6 +402,7 @@ During a match, use the board toolbar to switch between `2D` and `3D Exp.`. If t
 
 - 🟡 Cleaner action panels
 - 🟡 Board interaction polish
+- ✅ User-facing validation and error feedback
 - ⏳ Animations and feedback
 - ⏳ Screenshots
 

@@ -237,9 +237,16 @@ public sealed class GameService
             var (game, player, card) = EnsurePlayableActionCard(roomCode, playerId, cardId, DevelopmentCardType.Knight);
             player.PlayedKnightCount++;
             MarkActionCardPlayed(game, player, card);
-            UpdateLargestArmy(game);
+            AddLog(game, $"{player.PlayerName} played a Knight.", player.PlayerId);
+            UpdateLargestArmy(game, player);
+            CheckWinner(game, player);
+            if (game.Status == GameStatus.Finished)
+            {
+                return game;
+            }
+
             StartWardenMove(game, player.PlayerId);
-            AddLog(game, $"{player.PlayerName} played Knight. Move the Warden.", player.PlayerId);
+            AddLog(game, "Move the Warden.", player.PlayerId);
             return game;
         }
     }
@@ -982,6 +989,9 @@ public sealed class GameService
         game.CurrentWardenPlayerId = null;
         game.PendingWardenDiscards.Clear();
         game.WardenVictimOptions.Clear();
+        game.LargestArmyPlayerId = null;
+        game.LargestArmyKnightCount = 0;
+        game.LargestArmyAwardedAtTurn = null;
 
         foreach (var player in game.Players)
         {
@@ -1282,14 +1292,9 @@ public sealed class GameService
         return string.Join(", ", cost.Select(item => $"{item.Value} {item.Key}"));
     }
 
-    private static void UpdateLargestArmy(GameState game)
+    private static void UpdateLargestArmy(GameState game, PlayerGameState player)
     {
-        var leader = game.Players
-            .Where(player => player.PlayedKnightCount >= 3)
-            .OrderByDescending(player => player.PlayedKnightCount)
-            .FirstOrDefault();
-
-        if (leader is null || leader.PlayerId == game.LargestArmyPlayerId)
+        if (player.PlayedKnightCount < 3)
         {
             return;
         }
@@ -1298,13 +1303,32 @@ public sealed class GameService
             ? null
             : game.Players.FirstOrDefault(player => player.PlayerId == game.LargestArmyPlayerId);
 
-        if (currentHolder is not null && leader.PlayedKnightCount <= currentHolder.PlayedKnightCount)
+        AddLog(game, $"{player.PlayerName} now has {player.PlayedKnightCount} played Knights.", player.PlayerId);
+
+        if (currentHolder is null)
+        {
+            game.LargestArmyPlayerId = player.PlayerId;
+            game.LargestArmyKnightCount = player.PlayedKnightCount;
+            game.LargestArmyAwardedAtTurn = game.TurnNumber;
+            AddLog(game, $"{player.PlayerName} claimed Largest Army.", player.PlayerId);
+            return;
+        }
+
+        if (currentHolder.PlayerId == player.PlayerId)
+        {
+            game.LargestArmyKnightCount = player.PlayedKnightCount;
+            return;
+        }
+
+        if (player.PlayedKnightCount <= currentHolder.PlayedKnightCount)
         {
             return;
         }
 
-        game.LargestArmyPlayerId = leader.PlayerId;
-        AddLog(game, $"{leader.PlayerName} now holds Strongest Guard.", leader.PlayerId);
+        game.LargestArmyPlayerId = player.PlayerId;
+        game.LargestArmyKnightCount = player.PlayedKnightCount;
+        game.LargestArmyAwardedAtTurn = game.TurnNumber;
+        AddLog(game, $"{player.PlayerName} took Largest Army from {currentHolder.PlayerName}.", player.PlayerId);
     }
 
     public static void CheckWinner(GameState game, PlayerGameState player)

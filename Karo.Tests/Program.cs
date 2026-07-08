@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Karo.Api.Hubs;
 using Karo.Api.DTOs;
 using Karo.Api.Models;
 using Karo.Api.Services;
@@ -27,9 +29,12 @@ var tests = new (string Name, Action Run)[]
     ("Buying development cards validates cost, deck, ownership, and privacy", BuyingDevelopmentCards),
     ("Maritime trading uses default, generic, and specific harbor rates", MaritimeTradingRates),
     ("Development card play restrictions", DevelopmentCardPlayRestrictions),
+    ("Friendly validation errors stay player-facing", FriendlyValidationErrors),
     ("Year of Plenty and Monopoly effects", YearOfPlentyAndMonopoly),
-    ("Knight, Warden movement, random steal, and Strongest Guard", KnightAndLargestArmy),
+    ("Knight, Warden movement, random steal, and Largest Army", KnightWardenAndLargestArmy),
     ("Knight starts Warden flow without discard", KnightStartsWardenFlow),
+    ("Largest Army threshold, ties, transfer, scoring, and privacy", LargestArmyScoringRules),
+    ("Largest Army can trigger the win flow", LargestArmyWinDetection),
     ("Road Building active effect limitation is explicit", RoadBuildingEffect),
     ("Victory Point card can trigger a 10 VP win", VictoryPointWin),
     ("Debug actions are rejected outside Development", DebugActionsRejectOutsideDevelopment),
@@ -673,6 +678,52 @@ static void DevelopmentCardPlayRestrictions()
     ExpectRuleError(() => service.PlayMonopoly(game.RoomCode, current.PlayerId, secondCard.CardId, ResourceType.Wood), "not your turn");
 }
 
+static void FriendlyValidationErrors()
+{
+    var directError = new GameRuleException("You already played a Development Card this turn.");
+    AssertEqual(
+        "DevelopmentCardAlreadyPlayedThisTurn",
+        directError.ErrorCode,
+        "Development-card play-limit errors should have a stable code.");
+    AssertEqual(
+        "You already played a Development Card this turn.",
+        directError.UserMessage,
+        "UserMessage should stay player-facing.");
+
+    var payload = HubErrorSerializer.Serialize(directError.ErrorCode, directError.UserMessage);
+    using var payloadDocument = JsonDocument.Parse(payload);
+    var payloadRoot = payloadDocument.RootElement;
+    AssertEqual(
+        "DevelopmentCardAlreadyPlayedThisTurn",
+        payloadRoot.GetProperty("errorCode").GetString() ?? "",
+        "Hub validation payload should include the error code.");
+    AssertEqual(
+        "You already played a Development Card this turn.",
+        payloadRoot.GetProperty("userMessage").GetString() ?? "",
+        "Hub validation payload should include the user-facing message.");
+    Assert(!payload.Contains("PlayKnight", StringComparison.OrdinalIgnoreCase), "Hub validation payload should not expose hub method names.");
+    Assert(!payload.Contains("unexpected error", StringComparison.OrdinalIgnoreCase), "Hub validation payload should not include SignalR failure text.");
+
+    var (_, service, game) = CreateGame();
+    EnterNormalTurn(game);
+    var current = game.CurrentPlayer;
+    var firstCard = AddCard(current, DevelopmentCardType.YearOfPlenty, game.TurnNumber - 1);
+    service.PlayYearOfPlenty(game.RoomCode, current.PlayerId, firstCard.CardId, new[] { ResourceType.Wood, ResourceType.Wood });
+
+    var knight = AddCard(current, DevelopmentCardType.Knight, game.TurnNumber - 1);
+    var playKnightError = CaptureRuleError(() => service.PlayKnight(game.RoomCode, current.PlayerId, knight.CardId, "", null));
+    AssertEqual(
+        "DevelopmentCardAlreadyPlayedThisTurn",
+        playKnightError.ErrorCode,
+        "PlayKnight should return the friendly one-card-per-turn validation code.");
+    AssertEqual(
+        "You already played a Development Card this turn.",
+        playKnightError.UserMessage,
+        "PlayKnight should return the friendly one-card-per-turn message.");
+    Assert(!playKnightError.Message.Contains("PlayKnight", StringComparison.OrdinalIgnoreCase), "Rule error should not expose the hub method name.");
+    Assert(!playKnightError.Message.Contains("unexpected error", StringComparison.OrdinalIgnoreCase), "Rule error should not expose SignalR invocation text.");
+}
+
 static void YearOfPlentyAndMonopoly()
 {
     var (_, service, game) = CreateGame();
@@ -698,7 +749,7 @@ static void YearOfPlentyAndMonopoly()
     AssertEqual(0, opponent.Supplies[ResourceType.Clay], "Opponent should lose selected resource.");
 }
 
-static void KnightAndLargestArmy()
+static void KnightWardenAndLargestArmy()
 {
     var (_, service, game) = CreateGame();
     EnterNormalTurn(game);
@@ -729,7 +780,8 @@ static void KnightAndLargestArmy()
 
     Assert(game.WardenTileId != firstWardenTile, "Knight should move the Warden.");
     AssertEqual(3, current.PlayedKnightCount, "Knight should increment played count.");
-    AssertEqual(current.PlayerId, game.LargestArmyPlayerId, "Strongest Guard should be awarded after 3 Knights.");
+    AssertEqual(current.PlayerId, game.LargestArmyPlayerId, "Largest Army should be awarded after 3 Knights.");
+    AssertEqual(3, game.LargestArmyKnightCount, "Largest Army should track the holder's played Knight count.");
     Assert(current.Supplies.Values.Sum() > currentSupplyCountBefore, "Knight should steal one random available resource from chosen victim.");
 }
 
@@ -750,6 +802,77 @@ static void KnightStartsWardenFlow()
     var targetTile = game.Board.Tiles.First(tile => tile.TileId != game.WardenTileId);
     service.MoveWarden(game.RoomCode, current.PlayerId, targetTile.TileId);
     AssertEqual(WardenAction.None, game.PendingWardenAction, "Warden flow should complete cleanly when no victim is available.");
+}
+
+static void LargestArmyScoringRules()
+{
+    var (_, service, game) = CreateGame();
+    EnterNormalTurn(game);
+    var current = game.CurrentPlayer;
+    var opponent = game.Players.Single(player => player.PlayerId != current.PlayerId);
+    ClearBoardOwnership(game);
+    ClearSupplies(current);
+    ClearSupplies(opponent);
+
+    AddCard(current, DevelopmentCardType.Knight, game.TurnNumber - 1);
+    PlayKnightAndResolveWarden(service, game, current);
+    PlayKnightAndResolveWarden(service, game, current);
+    AssertEqual(2, current.PlayedKnightCount, "Only played Knights should count toward Largest Army.");
+    AssertEqual<string?>(null, game.LargestArmyPlayerId, "Largest Army should not be awarded before 3 played Knights.");
+    AssertEqual(0, game.LargestArmyKnightCount, "Largest Army count should stay 0 before it is awarded.");
+
+    var thirdKnight = PlayKnightAndResolveWarden(service, game, current);
+    Assert(thirdKnight.IsPlayed, "The Knight card should be marked played immediately.");
+    AssertEqual(3, current.PlayedKnightCount, "Played Knight count should increment once per successful Knight play.");
+    AssertEqual(current.PlayerId, game.LargestArmyPlayerId, "First player to 3 played Knights should claim Largest Army.");
+    AssertEqual(3, game.LargestArmyKnightCount, "Largest Army should record the claimed Knight count.");
+    AssertEqual(2, GameService.CalculateVictoryPoints(game, current, revealHidden: true), "Largest Army should add +2 Victory Points.");
+    Assert(game.Log.Any(entry => entry.Message.Contains("claimed Largest Army", StringComparison.OrdinalIgnoreCase)), "Claiming Largest Army should be logged.");
+
+    ExpectRuleError(() => service.PlayKnight(game.RoomCode, current.PlayerId, thirdKnight.CardId, "", null), "already");
+    AssertEqual(3, current.PlayedKnightCount, "Replaying a Knight should not increment playedKnightCount twice.");
+
+    PlayKnightAndResolveWarden(service, game, opponent);
+    PlayKnightAndResolveWarden(service, game, opponent);
+    PlayKnightAndResolveWarden(service, game, opponent);
+    AssertEqual(3, opponent.PlayedKnightCount, "Opponent should reach a tied Knight count.");
+    AssertEqual(current.PlayerId, game.LargestArmyPlayerId, "Ties should not transfer Largest Army.");
+    AssertEqual(2, GameService.CalculateVictoryPoints(game, current, revealHidden: true), "Current holder should keep Largest Army points on a tie.");
+    AssertEqual(0, GameService.CalculateVictoryPoints(game, opponent, revealHidden: true), "Tied challenger should not receive Largest Army points.");
+
+    PlayKnightAndResolveWarden(service, game, opponent);
+    AssertEqual(opponent.PlayerId, game.LargestArmyPlayerId, "A player with strictly more played Knights should take Largest Army.");
+    AssertEqual(4, game.LargestArmyKnightCount, "Largest Army count should update after transfer.");
+    AssertEqual(0, GameService.CalculateVictoryPoints(game, current, revealHidden: true), "Previous holder should lose Largest Army points after transfer.");
+    AssertEqual(2, GameService.CalculateVictoryPoints(game, opponent, revealHidden: true), "New holder should gain Largest Army points after transfer.");
+    Assert(game.Log.Any(entry => entry.Message.Contains("took Largest Army", StringComparison.OrdinalIgnoreCase)), "Largest Army transfer should be logged.");
+
+    var hiddenKnight = AddCard(current, DevelopmentCardType.Knight, game.TurnNumber - 1);
+    var hiddenVictoryPoint = AddCard(current, DevelopmentCardType.VictoryPoint, game.TurnNumber - 1);
+    var opponentDto = game.ToDto(opponent.PlayerId).Players.Single(player => player.PlayerId == current.PlayerId);
+    AssertEqual(3, current.PlayedKnightCount, "Bought but unplayed Knights should not count toward Largest Army.");
+    AssertEqual(current.DevelopmentCards.Count, opponentDto.DevelopmentCardCount, "Opponents should see the total development-card count.");
+    AssertEqual(0, opponentDto.DevelopmentCards.Count, "Opponents should not see exact hidden unplayed card types.");
+    Assert(!hiddenKnight.IsPlayed && !hiddenVictoryPoint.IsPlayed, "Hidden card setup should leave cards unplayed.");
+}
+
+static void LargestArmyWinDetection()
+{
+    var (_, service, game) = CreateGame();
+    EnterNormalTurn(game);
+    var current = game.CurrentPlayer;
+    ClearBoardOwnership(game);
+    current.CampsBuilt = 8;
+
+    PlayKnightAndResolveWarden(service, game, current);
+    PlayKnightAndResolveWarden(service, game, current);
+    PlayKnightAndResolveWarden(service, game, current);
+
+    AssertEqual(current.PlayerId, game.LargestArmyPlayerId, "Largest Army should be held by the winning player.");
+    AssertEqual(10, GameService.CalculateVictoryPoints(game, current, revealHidden: true), "Largest Army should be included in win scoring.");
+    AssertEqual(GameStatus.Finished, game.Status, "Largest Army points should be able to trigger the normal win flow.");
+    AssertEqual(GamePhase.Finished, game.Phase, "Winning through Largest Army should finish the match.");
+    AssertEqual(current.PlayerId, game.WinnerPlayerId, "Winning through Largest Army should set the winner.");
 }
 
 static void RoadBuildingEffect()
@@ -926,6 +1049,34 @@ static PlayerDevelopmentCard AddCard(PlayerGameState player, DevelopmentCardType
     };
     player.DevelopmentCards.Add(card);
     return card;
+}
+
+static PlayerDevelopmentCard PlayKnightAndResolveWarden(GameService service, GameState game, PlayerGameState player)
+{
+    var playerIndex = game.Players.FindIndex(candidate =>
+        string.Equals(candidate.PlayerId, player.PlayerId, StringComparison.OrdinalIgnoreCase));
+    Assert(playerIndex >= 0, "Test player should exist in the game.");
+
+    game.Phase = GamePhase.NormalTurn;
+    game.CurrentPlayerIndex = playerIndex;
+    game.HasRolledThisTurn = true;
+    game.LastDiceRoll ??= 8;
+    game.PendingWardenAction = WardenAction.None;
+    game.CurrentWardenPlayerId = null;
+    game.PendingWardenDiscards.Clear();
+    game.WardenVictimOptions.Clear();
+    player.HasPlayedDevelopmentCardThisTurn = false;
+
+    var knight = AddCard(player, DevelopmentCardType.Knight, Math.Max(0, game.TurnNumber - 1));
+    service.PlayKnight(game.RoomCode, player.PlayerId, knight.CardId, "", null);
+
+    if (game.Status != GameStatus.Finished && game.PendingWardenAction == WardenAction.MoveWarden)
+    {
+        var targetTile = game.Board.Tiles.First(tile => tile.TileId != game.WardenTileId);
+        service.MoveWarden(game.RoomCode, player.PlayerId, targetTile.TileId);
+    }
+
+    return knight;
 }
 
 static void ClearBoardOwnership(GameState game)
@@ -1170,6 +1321,20 @@ static void ExpectRuleError(Action action, string expectedMessagePart)
     }
 
     throw new InvalidOperationException($"Expected rule error containing '{expectedMessagePart}'.");
+}
+
+static GameRuleException CaptureRuleError(Action action)
+{
+    try
+    {
+        action();
+    }
+    catch (GameRuleException ex)
+    {
+        return ex;
+    }
+
+    throw new InvalidOperationException("Expected a game rule error.");
 }
 
 static void Assert(bool condition, string message)

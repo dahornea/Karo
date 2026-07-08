@@ -1,4 +1,5 @@
-import { Wifi, WifiOff } from 'lucide-react';
+import { useEffect } from 'react';
+import { Wifi, WifiOff, X } from 'lucide-react';
 import { GamePage } from './components/GamePage';
 import { LandingPage } from './components/LandingPage';
 import { LobbyPage } from './components/LobbyPage';
@@ -11,6 +12,15 @@ export function App() {
   const isConnected = lobby.connectionPhase === 'connected';
   const showGame = !!lobby.gameStarted;
 
+  useEffect(() => {
+    if (!lobby.error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(lobby.clearError, 6500);
+    return () => window.clearTimeout(timeoutId);
+  }, [lobby.error, lobby.clearError]);
+
   return (
     <main className="app-shell min-h-screen">
       <div className="connection-pill" data-state={lobby.connectionPhase}>
@@ -19,9 +29,21 @@ export function App() {
       </div>
 
       {lobby.error ? (
-        <button className="toast" type="button" onClick={lobby.clearError}>
-          {lobby.error}
-        </button>
+        <section className="toast" role="status" aria-live="polite">
+          <div className="toast-copy">
+            <strong>{lobby.error.title}</strong>
+            <span>{lobby.error.message}</span>
+            {debug.isDebugEnabled && lobby.error.debugDetails ? (
+              <details className="toast-debug">
+                <summary>Debug details</summary>
+                <code>{lobby.error.debugDetails}</code>
+              </details>
+            ) : null}
+          </div>
+          <button aria-label="Dismiss message" className="toast-dismiss" type="button" onClick={lobby.clearError}>
+            <X size={15} />
+          </button>
+        </section>
       ) : null}
 
       {!lobby.room ? (
