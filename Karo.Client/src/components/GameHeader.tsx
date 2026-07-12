@@ -1,26 +1,38 @@
-import { CircleDot, Crown, Hash, Layers, Map, Signal, Users } from 'lucide-react';
+import { Hash, Signal } from 'lucide-react';
 import type { ConnectionPhase } from '../hooks/useLobbyConnection';
 import type { GameState } from '../types/game';
+import type { ActionAssetType } from '../assets/game/gameAssets';
+import { ActionIcon } from './GameAsset';
 
 interface GameHeaderProps {
   connectionPhase: ConnectionPhase;
   game: GameState;
+  onOpenMatchDetails: () => void;
 }
 
-export function GameHeader({ connectionPhase, game }: GameHeaderProps) {
-  const currentPlayer = game.phase === 'Setup'
-    ? game.players.find((player) => player.playerId === game.currentSetupPlayerId)
-    : game.players.find((player) => player.playerId === game.currentPlayerId);
-  const subtitle = game.phase === 'Setup'
-    ? `Setup - ${currentPlayer?.playerName ?? 'Player'} ${game.setupStep === 'PlaceTrail' ? 'places a Trail' : 'places a Camp'}`
-    : `Turn ${game.turnNumber} - ${currentPlayer?.playerName ?? 'Player'}'s turn`;
+export function GameHeader({ connectionPhase, game, onOpenMatchDetails }: GameHeaderProps) {
   const phaseLabel = game.phase === 'Setup'
-    ? 'Setup'
+    ? `Setup ${game.setupRound === 'SecondPlacement' ? '2' : '1'}`
     : game.pendingWardenAction !== 'None'
       ? 'Warden'
+      : game.activeDevelopmentCardEffect
+        ? 'Card action'
+      : game.status === 'Finished'
+        ? 'Finished'
       : game.hasRolledThisTurn
-        ? `Rolled ${game.lastDiceRoll}`
-        : 'Roll needed';
+        ? `Turn ${game.turnNumber}`
+        : `Turn ${game.turnNumber}`;
+  const phaseAsset: ActionAssetType = game.phase === 'Setup'
+    ? 'Build'
+    : game.pendingWardenAction !== 'None'
+      ? 'MoveWarden'
+      : game.activeDevelopmentCardEffect
+        ? 'Cards'
+        : game.status === 'Finished'
+          ? 'VictoryPoint'
+          : game.hasRolledThisTurn
+            ? 'EndTurn'
+            : 'RollDice';
 
   return (
     <header className="game-header">
@@ -29,7 +41,6 @@ export function GameHeader({ connectionPhase, game }: GameHeaderProps) {
         <div>
           <p className="eyebrow">Karo Match</p>
           <h1>Karo</h1>
-          <p className="game-subtitle">{subtitle}</p>
         </div>
       </div>
 
@@ -39,30 +50,18 @@ export function GameHeader({ connectionPhase, game }: GameHeaderProps) {
           {game.roomCode}
         </span>
         <span className="stat-pill stat-pill-primary">
-          <CircleDot size={16} />
+          <ActionIcon decorative size="xs" type={phaseAsset} />
           {phaseLabel}
-        </span>
-        <span className="stat-pill">
-          <Crown size={16} />
-          {game.winningVictoryPoints} VP
-        </span>
-        <span className="stat-pill">
-          <Layers size={16} />
-          {game.phase === 'Setup' ? 'setup' : `${game.developmentDeckCount} cards`}
-        </span>
-        <span className="stat-pill">
-          <Users size={16} />
-          {game.players.length} players
-        </span>
-        <span className="stat-pill">
-          <Map size={16} />
-          {game.board.tiles.length} regions
         </span>
         <span className="stat-pill" data-state={connectionPhase}>
           <Signal size={16} />
           <span className="status-dot" />
           {connectionPhase}
         </span>
+        <button className="stat-pill match-details-button" type="button" onClick={onOpenMatchDetails}>
+          <ActionIcon decorative size="xs" type="MatchDetails" />
+          Details
+        </button>
       </div>
     </header>
   );

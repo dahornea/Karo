@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="fort-stone" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#aaa493"/><stop offset="1" stop-color="#5e5b51"/></linearGradient>
+    <linearGradient id="fort-face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c7c0aa"/><stop offset="1" stop-color="#777268"/></linearGradient>
+  </defs>
+  <ellipse cx="128" cy="226" rx="91" ry="15" fill="#151714" opacity=".26"/>
+  <path d="M43 211V91h29V70h34v21h44V70h34v21h29v120Z" fill="url(#fort-stone)" stroke="#302f2a" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M76 211V112h104v99Z" fill="url(#fort-face)" stroke="#302f2a" stroke-width="8"/>
+  <path d="M103 211v-61c0-16 11-27 25-27s25 11 25 27v61Z" fill="#35332e" stroke="#302f2a" stroke-width="7"/>
+  <path d="M57 110h19M180 110h19M91 112V91m74 21V91" stroke="#d8cfb7" stroke-width="5" opacity=".42"/>
+  <path d="M83 134h20v25H83zm70 0h20v25h-20z" fill="#d3b36d" stroke="#302f2a" stroke-width="6"/>
+  <path d="M53 183h150" stroke="#3b3932" stroke-width="5" opacity=".45"/>
+</svg>

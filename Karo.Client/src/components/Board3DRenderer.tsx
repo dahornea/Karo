@@ -6,6 +6,10 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import type { BoardEdge, BoardVertex, GameState, HarborSlot, HexTile as HexTileModel, TileResourceType } from '../types/game';
 import type { BoardDebugOptions } from '../types/debug';
 import { defaultBoardDebugOptions } from '../types/debug';
+import { TerrainSymbol } from './GameAsset';
+import { OptionalModel3D } from './OptionalModel3D';
+import type { DirectBuildSelection } from '../utils/directBuild';
+import { getDirectBuildAvailability, getFreeTrailTargetIds, getSetupCampTargetIds, getSetupTrailTargetIds } from '../utils/directBuild';
 
 interface Board3DRendererProps {
   game: GameState;
@@ -13,8 +17,11 @@ interface Board3DRendererProps {
   debugOptions?: BoardDebugOptions;
   pendingAction?: string | null;
   toolbarAction?: ReactNode;
+  selectedBuildTarget?: DirectBuildSelection | null;
+  onSelectBuildTarget?: (selection: DirectBuildSelection) => void;
   onPlaceSetupCamp?: (roomCode: string, vertexId: string) => Promise<void>;
   onPlaceSetupTrail?: (roomCode: string, edgeId: string) => Promise<void>;
+  onPlaceFreeTrail?: (roomCode: string, edgeId: string) => Promise<void>;
   onMoveWarden?: (roomCode: string, targetTileId: string) => Promise<void>;
 }
 
@@ -42,6 +49,10 @@ type BoardControlsRef = {
   target: BoardVector3Ref;
   update: () => void;
 };
+
+function sameId(left: string | null | undefined, right: string | null | undefined) {
+  return Boolean(left && right && left.toLocaleLowerCase() === right.toLocaleLowerCase());
+}
 
 const tileRadius = 1.28;
 const backendHexSize = 100;
@@ -145,8 +156,11 @@ export function Board3DRenderer({
   debugOptions = defaultBoardDebugOptions,
   pendingAction = null,
   toolbarAction,
+  selectedBuildTarget = null,
+  onSelectBuildTarget,
   onPlaceSetupCamp,
   onPlaceSetupTrail,
+  onPlaceFreeTrail,
   onMoveWarden
 }: Board3DRendererProps) {
   const [cameraCommand, setCameraCommand] = useState<CameraCommand>({ preset: 'default', revision: 0 });
@@ -235,8 +249,16 @@ export function Board3DRenderer({
         <div className="board-toolbar-tools">
           <div className="resource-legend" aria-label="Resource legend">
             {resourceLegend.map((item) => (
-              <span className={`legend-chip legend-${item.resource.toLowerCase()}`} key={item.resource}>
-                {item.label}
+              <span
+                aria-label={item.label}
+                className={`legend-chip legend-${item.resource.toLowerCase()}`}
+                key={item.resource}
+                role="img"
+                tabIndex={0}
+                title={item.label}
+              >
+                <TerrainSymbol decorative size="sm" type={item.resource} />
+                <span className="sr-only">{item.label}</span>
               </span>
             ))}
           </div>
@@ -266,7 +288,10 @@ export function Board3DRenderer({
             game={game}
             pendingAction={pendingAction}
             playerId={playerId}
+            selectedBuildTarget={selectedBuildTarget}
+            onSelectBuildTarget={onSelectBuildTarget}
             onMoveWarden={onMoveWarden}
+            onPlaceFreeTrail={onPlaceFreeTrail}
             onPlaceSetupCamp={onPlaceSetupCamp}
             onPlaceSetupTrail={onPlaceSetupTrail}
           />
@@ -300,44 +325,29 @@ function ThreeBoardScene({
   cameraCommand,
   canUseBoardClick,
   pendingAction,
+  selectedBuildTarget,
+  onSelectBuildTarget,
   onPlaceSetupCamp,
   onPlaceSetupTrail,
+  onPlaceFreeTrail,
   onMoveWarden
-}: Required<Pick<Board3DRendererProps, 'game' | 'playerId' | 'debugOptions'>> & Pick<Board3DRendererProps, 'pendingAction' | 'onPlaceSetupCamp' | 'onPlaceSetupTrail' | 'onMoveWarden'> & {
+}: Required<Pick<Board3DRendererProps, 'game' | 'playerId' | 'debugOptions'>> & Pick<Board3DRendererProps, 'pendingAction' | 'selectedBuildTarget' | 'onSelectBuildTarget' | 'onPlaceSetupCamp' | 'onPlaceSetupTrail' | 'onPlaceFreeTrail' | 'onMoveWarden'> & {
   cameraCommand: CameraCommand;
   canUseBoardClick: () => boolean;
 }) {
   const layout = useMemo(() => buildThreeBoardLayout(game), [game]);
-  const isSetupPlacementAvailable = game.phase === 'Setup'
-    && game.currentSetupPlayerId === playerId
-    && !pendingAction;
-  const setupCampTargets = useMemo(() => {
-    if (!isSetupPlacementAvailable || game.setupStep !== 'PlaceCamp') {
-      return new Set<string>();
-    }
-
-    return new Set(
-      game.board.vertices
-        .filter((vertex) => isValidSetupCampTarget(vertex, game.board.vertices, game.board.edges))
-        .map((vertex) => vertex.vertexId)
-    );
-  }, [game.board.edges, game.board.vertices, game.setupStep, isSetupPlacementAvailable]);
-  const setupTrailTargets = useMemo(() => {
-    if (!isSetupPlacementAvailable || game.setupStep !== 'PlaceTrail' || !game.lastSetupCampVertexId) {
-      return new Set<string>();
-    }
-
-    return new Set(
-      game.board.edges
-        .filter((edge) => !edge.ownerPlayerId && edgeTouchesVertex(edge, game.lastSetupCampVertexId!))
-        .map((edge) => edge.edgeId)
-    );
-  }, [game.board.edges, game.lastSetupCampVertexId, game.setupStep, isSetupPlacementAvailable]);
+  const setupCampTargets = useMemo(() => new Set(getSetupCampTargetIds(game, playerId, pendingAction ?? null)), [game, pendingAction, playerId]);
+  const setupTrailTargets = useMemo(() => new Set(getSetupTrailTargetIds(game, playerId, pendingAction ?? null)), [game, pendingAction, playerId]);
   const canMoveWarden = game.phase === 'NormalTurn'
     && game.pendingWardenAction === 'MoveWarden'
     && game.currentWardenPlayerId === playerId
     && !pendingAction
     && !!onMoveWarden;
+  const freeTrailTargets = useMemo(() => new Set(getFreeTrailTargetIds(game, playerId, pendingAction ?? null)), [game, pendingAction, playerId]);
+  const directBuildAvailability = useMemo(() => getDirectBuildAvailability(game, playerId, pendingAction ?? null), [game, pendingAction, playerId]);
+  const directTrailTargets = new Set(directBuildAvailability.actions.Trail.actionableTargetIds);
+  const directCampTargets = new Set(directBuildAvailability.actions.Camp.actionableTargetIds);
+  const directStrongholdTargets = new Set(directBuildAvailability.actions.Stronghold.actionableTargetIds);
   const wardenTileId = game.wardenTileId ?? game.robberTileId;
 
   return (
@@ -379,10 +389,15 @@ function ThreeBoardScene({
           {layout.edges.map((edgeLayout) => (
             <ThreeTrailPiece
               game={game}
+              isDirectBuildTarget={directTrailTargets.has(edgeLayout.edge.edgeId)}
+              isSelectedBuildTarget={selectedBuildTarget?.type === 'Trail' && selectedBuildTarget.targetId === edgeLayout.edge.edgeId}
+              isFreeTrailTarget={freeTrailTargets.has(edgeLayout.edge.edgeId)}
               isSetupTarget={setupTrailTargets.has(edgeLayout.edge.edgeId)}
               key={edgeLayout.edge.edgeId}
               canUseBoardClick={canUseBoardClick}
+              onPlaceFreeTrail={onPlaceFreeTrail}
               onPlaceSetupTrail={onPlaceSetupTrail}
+              onSelectBuildTarget={onSelectBuildTarget}
               {...edgeLayout}
             />
           ))}
@@ -390,6 +405,9 @@ function ThreeBoardScene({
           {layout.vertices.map((vertexLayout) => (
             <ThreeBuildNode
               game={game}
+              isBuildCampTarget={directCampTargets.has(vertexLayout.vertex.vertexId)}
+              isBuildStrongholdTarget={directStrongholdTargets.has(vertexLayout.vertex.vertexId)}
+              isSelectedBuildTarget={selectedBuildTarget?.type !== 'Trail' && selectedBuildTarget?.targetId === vertexLayout.vertex.vertexId}
               isSetupTarget={setupCampTargets.has(vertexLayout.vertex.vertexId)}
               key={vertexLayout.vertex.vertexId}
               showNodeDetails={debugOptions.showNodeDetails}
@@ -397,6 +415,7 @@ function ThreeBoardScene({
               showValidBuildPlacements={debugOptions.showValidBuildPlacements}
               canUseBoardClick={canUseBoardClick}
               onPlaceSetupCamp={onPlaceSetupCamp}
+              onSelectBuildTarget={onSelectBuildTarget}
               {...vertexLayout}
             />
           ))}
@@ -659,20 +678,30 @@ function ThreeTrailPiece({
   angle,
   game,
   isSetupTarget,
+  isFreeTrailTarget,
+  isDirectBuildTarget,
+  isSelectedBuildTarget,
   canUseBoardClick,
-  onPlaceSetupTrail
+  onPlaceFreeTrail,
+  onPlaceSetupTrail,
+  onSelectBuildTarget
 }: EdgeLayout3D & {
   game: GameState;
   isSetupTarget: boolean;
+  isFreeTrailTarget: boolean;
+  isDirectBuildTarget: boolean;
+  isSelectedBuildTarget: boolean;
   canUseBoardClick: () => boolean;
   onPlaceSetupTrail?: (roomCode: string, edgeId: string) => Promise<void>;
+  onPlaceFreeTrail?: (roomCode: string, edgeId: string) => Promise<void>;
+  onSelectBuildTarget?: (selection: DirectBuildSelection) => void;
 }) {
-  if (!edge.ownerPlayerId && !isSetupTarget) {
+  if (!edge.ownerPlayerId && !isSetupTarget && !isFreeTrailTarget && !isDirectBuildTarget) {
     return null;
   }
 
-  const canPlace = isSetupTarget && !!onPlaceSetupTrail;
-  const color = edge.ownerPlayerId ? playerColor(game, edge.ownerPlayerId) : '#f2d57c';
+  const canPlace = (isSetupTarget && !!onPlaceSetupTrail) || (isFreeTrailTarget && !!onPlaceFreeTrail) || (isDirectBuildTarget && !!onSelectBuildTarget);
+  const color = edge.ownerPlayerId ? playerColor(game, edge.ownerPlayerId) : isDirectBuildTarget ? playerColor(game, game.currentPlayerId) : '#f2d57c';
   const handleClick = canPlace
     ? (event: ThreeEvent<MouseEvent>) => {
         event.stopPropagation();
@@ -680,7 +709,17 @@ function ThreeTrailPiece({
           return;
         }
 
-        void onPlaceSetupTrail?.(game.roomCode, edge.edgeId);
+        if (isSetupTarget) {
+          void onPlaceSetupTrail?.(game.roomCode, edge.edgeId);
+          return;
+        }
+
+        if (isFreeTrailTarget) {
+          void onPlaceFreeTrail?.(game.roomCode, edge.edgeId);
+          return;
+        }
+
+        onSelectBuildTarget?.({ type: 'Trail', targetId: edge.edgeId });
       }
     : undefined;
 
@@ -690,18 +729,18 @@ function ThreeTrailPiece({
         color={color}
         length={length}
         midpoint={midpoint}
-        opacity={edge.ownerPlayerId ? 1 : 0.5}
+        opacity={edge.ownerPlayerId ? 1 : isSelectedBuildTarget ? 0.9 : 0.42}
         y={0.5}
         angle={angle}
         radius={edge.ownerPlayerId ? 0.088 : 0.064}
         onClick={handleClick}
       />
-      {isSetupTarget ? (
+      {isSetupTarget || isFreeTrailTarget || isDirectBuildTarget ? (
         <TrailBar
           color="#fff3b8"
           length={distance(start, end) * 0.72}
           midpoint={midpoint}
-          opacity={0.2}
+          opacity={isSelectedBuildTarget ? 0.52 : 0.2}
           y={0.585}
           angle={angle}
           radius={0.105}
@@ -762,23 +801,32 @@ function ThreeBuildNode({
   position,
   game,
   isSetupTarget,
+  isBuildCampTarget,
+  isBuildStrongholdTarget,
+  isSelectedBuildTarget,
   showNodeDetails,
   showNodeId,
   showValidBuildPlacements,
   canUseBoardClick,
-  onPlaceSetupCamp
+  onPlaceSetupCamp,
+  onSelectBuildTarget
 }: VertexLayout3D & {
   game: GameState;
   isSetupTarget: boolean;
+  isBuildCampTarget: boolean;
+  isBuildStrongholdTarget: boolean;
+  isSelectedBuildTarget: boolean;
   showNodeDetails: boolean;
   showNodeId: boolean;
   showValidBuildPlacements: boolean;
   canUseBoardClick: () => boolean;
   onPlaceSetupCamp?: (roomCode: string, vertexId: string) => Promise<void>;
+  onSelectBuildTarget?: (selection: DirectBuildSelection) => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const isOccupied = !!vertex.ownerPlayerId && !!vertex.structureType;
-  const canPlace = isSetupTarget && !!onPlaceSetupCamp;
+  const isDirectBuildTarget = isBuildCampTarget || isBuildStrongholdTarget;
+  const canPlace = (isSetupTarget && !!onPlaceSetupCamp) || (isDirectBuildTarget && !!onSelectBuildTarget);
   const color = playerColor(game, vertex.ownerPlayerId);
   const handleClick = canPlace
     ? (event: ThreeEvent<MouseEvent>) => {
@@ -787,7 +835,12 @@ function ThreeBuildNode({
           return;
         }
 
-        void onPlaceSetupCamp?.(game.roomCode, vertex.vertexId);
+        if (isSetupTarget) {
+          void onPlaceSetupCamp?.(game.roomCode, vertex.vertexId);
+          return;
+        }
+
+        onSelectBuildTarget?.({ type: isBuildStrongholdTarget ? 'Stronghold' : 'Camp', targetId: vertex.vertexId });
       }
     : undefined;
 
@@ -795,15 +848,15 @@ function ThreeBuildNode({
     <group position={[position.x, 0.42, position.z]}>
       {isOccupied && vertex.structureType === 'Stronghold' ? <ThreeStrongholdPiece color={color} /> : null}
       {isOccupied && vertex.structureType === 'Camp' ? <ThreeCampPiece color={color} /> : null}
-      {isSetupTarget || showValidBuildPlacements ? (
+      {isSetupTarget || isDirectBuildTarget || showValidBuildPlacements ? (
         <group
           onClick={handleClick}
           onPointerOut={() => setIsHovered(false)}
           onPointerOver={() => setIsHovered(true)}
         >
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[isSetupTarget ? (isHovered ? 0.2 : 0.112) : 0.085, 0.01, 8, 22]} />
-            <meshStandardMaterial color={isSetupTarget ? '#ffe796' : '#fff4cc'} transparent opacity={isSetupTarget ? (isHovered ? 0.72 : 0.12) : 0.08} />
+            <torusGeometry args={[isSetupTarget ? (isHovered ? 0.2 : 0.112) : isDirectBuildTarget ? (isHovered || isSelectedBuildTarget ? 0.21 : 0.13) : 0.085, 0.01, 8, 22]} />
+            <meshStandardMaterial color={isSetupTarget ? '#ffe796' : isDirectBuildTarget ? playerColor(game, game.currentPlayerId) : '#fff4cc'} transparent opacity={isSetupTarget ? (isHovered ? 0.72 : 0.12) : isDirectBuildTarget ? (isHovered || isSelectedBuildTarget ? 0.72 : 0.16) : 0.08} />
           </mesh>
           {isSetupTarget ? (
             <mesh rotation={[-Math.PI / 2, 0, 0]}>
@@ -882,6 +935,10 @@ function ThreeStrongholdPiece({ color }: { color: string }) {
 }
 
 function ThreeWardenPiece() {
+  return <OptionalModel3D fallback={<ProceduralWardenPiece />} scale={0.42} type="Warden" />;
+}
+
+function ProceduralWardenPiece() {
   return (
     <group position={[0.48, tileHeight / 2 + 0.2, -0.44]}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
@@ -1156,24 +1213,6 @@ function getThreeBounds(points: Vec2[]) {
     minZ: Math.min(...points.map((point) => point.z)),
     maxZ: Math.max(...points.map((point) => point.z))
   };
-}
-
-function edgeTouchesVertex(edge: BoardEdge, vertexId: string) {
-  return edge.startVertexId === vertexId || edge.endVertexId === vertexId;
-}
-
-function isValidSetupCampTarget(vertex: BoardVertex, vertices: BoardVertex[], edges: BoardEdge[]) {
-  if (vertex.ownerPlayerId || vertex.structureType) {
-    return false;
-  }
-
-  return !edges
-    .filter((edge) => edgeTouchesVertex(edge, vertex.vertexId))
-    .some((edge) => {
-      const otherVertexId = edge.startVertexId === vertex.vertexId ? edge.endVertexId : edge.startVertexId;
-      const otherVertex = vertices.find((candidate) => candidate.vertexId === otherVertexId);
-      return !!otherVertex?.ownerPlayerId && !!otherVertex.structureType;
-    });
 }
 
 function playerColor(game: GameState, ownerPlayerId: string | null) {

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="camp-wood" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#a47c4d"/><stop offset="1" stop-color="#5b422d"/></linearGradient>
+    <linearGradient id="camp-roof" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c39a5f"/><stop offset="1" stop-color="#765137"/></linearGradient>
+  </defs>
+  <ellipse cx="128" cy="221" rx="78" ry="14" fill="#171916" opacity=".24"/>
+  <path d="M54 205h148l-13-80-61-49-61 49Z" fill="url(#camp-wood)" stroke="#302820" stroke-width="9" stroke-linejoin="round"/>
+  <path d="m47 128 81-67 81 67-17 16-64-51-64 51Z" fill="url(#camp-roof)" stroke="#302820" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M104 205v-57h48v57" fill="#2f2922" stroke="#302820" stroke-width="7"/>
+  <path d="M75 151h22v27H75zm84 0h22v27h-22z" fill="#d6b675" stroke="#302820" stroke-width="6"/>
+  <path d="M71 122h114M77 135h102" stroke="#e1bd78" stroke-width="4" stroke-linecap="round" opacity=".28"/>
+  <path d="M128 93v112" stroke="#302820" stroke-width="5" opacity=".55"/>
+</svg>

@@ -1,9 +1,19 @@
 import { useMemo } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { BoardEdge, BoardVertex, GameState, HarborSlot, TileResourceType } from '../types/game';
+import { gameAssets } from '../assets/game/gameAssets';
+import { TerrainSymbol } from './GameAsset';
 import type { BoardDebugOptions } from '../types/debug';
 import { defaultBoardDebugOptions } from '../types/debug';
 import { HexTile } from './HexTile';
+import type { DirectBuildSelection } from '../utils/directBuild';
+import {
+  directBuildLabels,
+  getDirectBuildAvailability,
+  getFreeTrailTargetIds,
+  getSetupCampTargetIds,
+  getSetupTrailTargetIds
+} from '../utils/directBuild';
 
 export interface GameBoardProps {
   game: GameState;
@@ -11,8 +21,11 @@ export interface GameBoardProps {
   debugOptions?: BoardDebugOptions;
   pendingAction?: string | null;
   toolbarAction?: ReactNode;
+  selectedBuildTarget?: DirectBuildSelection | null;
+  onSelectBuildTarget?: (selection: DirectBuildSelection) => void;
   onPlaceSetupCamp?: (roomCode: string, vertexId: string) => Promise<void>;
   onPlaceSetupTrail?: (roomCode: string, edgeId: string) => Promise<void>;
+  onPlaceFreeTrail?: (roomCode: string, edgeId: string) => Promise<void>;
   onMoveWarden?: (roomCode: string, targetTileId: string) => Promise<void>;
 }
 
@@ -38,8 +51,11 @@ export function GameBoard({
   debugOptions = defaultBoardDebugOptions,
   pendingAction = null,
   toolbarAction,
+  selectedBuildTarget = null,
+  onSelectBuildTarget,
   onPlaceSetupCamp,
   onPlaceSetupTrail,
+  onPlaceFreeTrail,
   onMoveWarden
 }: GameBoardProps) {
   const layout = useMemo(() => {
@@ -165,50 +181,42 @@ export function GameBoard({
     };
   }, [game.board.edges, game.board.harborSlots, game.board.ports, game.board.tiles, game.board.vertices, game.players, playerId]);
 
-  const isSetupPlacementAvailable = game.phase === 'Setup'
-    && game.currentSetupPlayerId === playerId
-    && !pendingAction;
   const canMoveWarden = game.phase === 'NormalTurn'
     && game.pendingWardenAction === 'MoveWarden'
     && game.currentWardenPlayerId === playerId
     && !pendingAction
     && !!onMoveWarden;
   const wardenTileId = game.wardenTileId ?? game.robberTileId;
-  const setupCampTargets = useMemo(() => {
-    if (!isSetupPlacementAvailable || game.setupStep !== 'PlaceCamp') {
-      return new Set<string>();
-    }
-
-    return new Set(
-      game.board.vertices
-        .filter((vertex) => isValidSetupCampTarget(vertex, game.board.vertices, game.board.edges))
-        .map((vertex) => vertex.vertexId)
-    );
-  }, [game.board.edges, game.board.vertices, game.setupStep, isSetupPlacementAvailable]);
-  const setupTrailTargets = useMemo(() => {
-    if (!isSetupPlacementAvailable || game.setupStep !== 'PlaceTrail' || !game.lastSetupCampVertexId) {
-      return new Set<string>();
-    }
-
-    return new Set(
-      game.board.edges
-        .filter((edge) => !edge.ownerPlayerId && edgeTouchesVertex(edge, game.lastSetupCampVertexId!))
-        .map((edge) => edge.edgeId)
-    );
-  }, [game.board.edges, game.lastSetupCampVertexId, game.setupStep, isSetupPlacementAvailable]);
+  const setupCampTargets = useMemo(() => new Set(getSetupCampTargetIds(game, playerId, pendingAction)), [game, pendingAction, playerId]);
+  const setupTrailTargets = useMemo(() => new Set(getSetupTrailTargetIds(game, playerId, pendingAction)), [game, pendingAction, playerId]);
+  const freeTrailTargets = useMemo(() => new Set(getFreeTrailTargetIds(game, playerId, pendingAction)), [game, pendingAction, playerId]);
+  const directBuildAvailability = useMemo(
+    () => getDirectBuildAvailability(game, playerId, pendingAction),
+    [game, pendingAction, playerId]
+  );
+  const buildTrailTargets = new Set(directBuildAvailability.actions.Trail.actionableTargetIds);
+  const buildCampTargets = new Set(directBuildAvailability.actions.Camp.actionableTargetIds);
+  const buildStrongholdTargets = new Set(directBuildAvailability.actions.Stronghold.actionableTargetIds);
 
   return (
     <section className="board-table">
       <div className="board-toolbar">
-        <div>
-          <p className="eyebrow">Shared Map</p>
-          <h2>Karo Island</h2>
+        <div className="board-identity">
+          <h2><span className="sr-only">Karo </span>Island</h2>
         </div>
         <div className="board-toolbar-tools">
           <div className="resource-legend" aria-label="Resource legend">
             {resourceLegend.map((item) => (
-              <span className={`legend-chip legend-${item.resource.toLowerCase()}`} key={item.resource}>
-                {item.label}
+              <span
+                aria-label={item.label}
+                className={`legend-chip legend-${item.resource.toLowerCase()}`}
+                key={item.resource}
+                role="img"
+                tabIndex={0}
+                title={item.label}
+              >
+                <TerrainSymbol decorative size="sm" type={item.resource} />
+                <span className="sr-only">{item.label}</span>
               </span>
             ))}
           </div>
@@ -216,7 +224,7 @@ export function GameBoard({
         </div>
       </div>
 
-      <svg className="game-board-svg" viewBox={layout.viewBox} role="img" aria-label="Generated Karo hex board">
+      <svg className="game-board-svg" viewBox={layout.viewBox} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Generated Karo hex board">
         <TerrainDefs />
         <BoardWaterLayer bounds={layout.waterBounds} landBounds={layout.landBounds} />
         <g className="board-shadow">
@@ -250,8 +258,13 @@ export function GameBoard({
           {layout.edgeLayouts.map((edgeLayout) => (
             <TrailEdge
               game={game}
+              isBuildTarget={buildTrailTargets.has(edgeLayout.edge.edgeId)}
+              isSelectedBuildTarget={selectedBuildTarget?.type === 'Trail' && selectedBuildTarget.targetId === edgeLayout.edge.edgeId}
+              isFreeTrailTarget={freeTrailTargets.has(edgeLayout.edge.edgeId)}
               isSetupTarget={setupTrailTargets.has(edgeLayout.edge.edgeId)}
               key={edgeLayout.edge.edgeId}
+              onSelectBuildTarget={onSelectBuildTarget}
+              onPlaceFreeTrail={onPlaceFreeTrail}
               onPlaceSetupTrail={onPlaceSetupTrail}
               {...edgeLayout}
             />
@@ -261,8 +274,12 @@ export function GameBoard({
           {layout.vertexLayouts.map((vertexLayout) => (
             <BuildNode
               game={game}
+              isBuildCampTarget={buildCampTargets.has(vertexLayout.vertex.vertexId)}
+              isBuildStrongholdTarget={buildStrongholdTargets.has(vertexLayout.vertex.vertexId)}
+              isSelectedBuildTarget={selectedBuildTarget?.type !== 'Trail' && selectedBuildTarget?.targetId === vertexLayout.vertex.vertexId}
               isSetupTarget={setupCampTargets.has(vertexLayout.vertex.vertexId)}
               key={vertexLayout.vertex.vertexId}
+              onSelectBuildTarget={onSelectBuildTarget}
               onPlaceSetupCamp={onPlaceSetupCamp}
               {...vertexLayout}
             />
@@ -402,24 +419,6 @@ function pointsPath(points: Array<{ x: number; y: number }>) {
   return `${points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')} Z`;
 }
 
-function edgeTouchesVertex(edge: BoardEdge, vertexId: string) {
-  return edge.startVertexId === vertexId || edge.endVertexId === vertexId;
-}
-
-function isValidSetupCampTarget(vertex: BoardVertex, vertices: BoardVertex[], edges: BoardEdge[]) {
-  if (vertex.ownerPlayerId || vertex.structureType) {
-    return false;
-  }
-
-  return !edges
-    .filter((edge) => edgeTouchesVertex(edge, vertex.vertexId))
-    .some((edge) => {
-      const otherVertexId = edge.startVertexId === vertex.vertexId ? edge.endVertexId : edge.startVertexId;
-      const otherVertex = vertices.find((candidate) => candidate.vertexId === otherVertexId);
-      return !!otherVertex?.ownerPlayerId && !!otherVertex.structureType;
-    });
-}
-
 function playerColor(game: GameState, ownerPlayerId: string | null) {
   if (!ownerPlayerId) {
     return '#8f7a58';
@@ -432,30 +431,65 @@ function playerColor(game: GameState, ownerPlayerId: string | null) {
 interface TrailEdgeProps extends EdgeLayout {
   game: GameState;
   isSetupTarget: boolean;
+  isFreeTrailTarget: boolean;
+  isBuildTarget: boolean;
+  isSelectedBuildTarget: boolean;
   onPlaceSetupTrail?: (roomCode: string, edgeId: string) => Promise<void>;
+  onPlaceFreeTrail?: (roomCode: string, edgeId: string) => Promise<void>;
+  onSelectBuildTarget?: (selection: DirectBuildSelection) => void;
 }
 
-function TrailEdge({ game, edge, start, end, isSetupTarget, onPlaceSetupTrail }: TrailEdgeProps) {
+function TrailEdge({ game, edge, start, end, midpoint, isSetupTarget, isFreeTrailTarget, isBuildTarget, isSelectedBuildTarget, onPlaceSetupTrail, onPlaceFreeTrail, onSelectBuildTarget }: TrailEdgeProps) {
   const ownerColor = playerColor(game, edge.ownerPlayerId);
-  const canPlace = isSetupTarget && !!onPlaceSetupTrail;
+  const canPlace = (isSetupTarget && !!onPlaceSetupTrail) || (isFreeTrailTarget && !!onPlaceFreeTrail) || (isBuildTarget && !!onSelectBuildTarget);
+  const placeTrail = () => {
+    if (isSetupTarget) {
+      void onPlaceSetupTrail?.(game.roomCode, edge.edgeId);
+      return;
+    }
+
+    if (isFreeTrailTarget) {
+      void onPlaceFreeTrail?.(game.roomCode, edge.edgeId);
+      return;
+    }
+
+    onSelectBuildTarget?.({ type: 'Trail', targetId: edge.edgeId });
+  };
+
+  const actionLabel = isSetupTarget
+    ? 'Place setup Trail on edge'
+    : isFreeTrailTarget
+      ? 'Place free Trail on edge'
+      : 'Build Trail on edge';
 
   return (
     <g
       className="trail-edge"
+      data-direct-build-selected={isSelectedBuildTarget}
+      data-direct-build-target={isBuildTarget}
       data-owned={!!edge.ownerPlayerId}
-      data-setup-target={isSetupTarget}
-      onClick={canPlace ? () => void onPlaceSetupTrail?.(game.roomCode, edge.edgeId) : undefined}
-      role={canPlace ? 'button' : undefined}
-      tabIndex={canPlace ? 0 : undefined}
-      onKeyDown={canPlace ? (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          void onPlaceSetupTrail?.(game.roomCode, edge.edgeId);
-        }
-      } : undefined}
+      data-setup-target={isSetupTarget || isFreeTrailTarget}
+      style={isBuildTarget ? ({ '--build-target-color': playerColor(game, game.currentPlayerId) } as CSSProperties) : undefined}
     >
-      <title>{edge.ownerPlayerId ? `Trail owned by ${edge.ownerPlayerId}` : isSetupTarget ? 'Place setup Trail' : edge.edgeId}</title>
-      <line className="trail-edge-hitbox" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
+      <title>{edge.ownerPlayerId ? `Trail owned by ${edge.ownerPlayerId}` : isSetupTarget ? 'Place setup Trail' : isFreeTrailTarget ? 'Place free Trail' : isBuildTarget ? directBuildLabels.Trail.tooltip : edge.edgeId}</title>
+      <rect
+        aria-label={canPlace ? actionLabel : undefined}
+        className="trail-edge-hitbox"
+        onClick={canPlace ? placeTrail : undefined}
+        role={canPlace ? 'button' : undefined}
+        tabIndex={canPlace ? 0 : undefined}
+        onKeyDown={canPlace ? (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            placeTrail();
+          }
+        } : undefined}
+        height="26"
+        transform={`translate(${midpoint.x} ${midpoint.y}) rotate(${Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI})`}
+        width={Math.hypot(end.x - start.x, end.y - start.y)}
+        x={-Math.hypot(end.x - start.x, end.y - start.y) / 2}
+        y="-13"
+      />
       <line className="trail-edge-shadow" x1={start.x} y1={start.y + 2} x2={end.x} y2={end.y + 2} />
       <line className="trail-edge-base" x1={start.x} y1={start.y} x2={end.x} y2={end.y} style={{ stroke: ownerColor }} />
       <line className="trail-edge-highlight" x1={start.x} y1={start.y - 1.5} x2={end.x} y2={end.y - 1.5} />
@@ -469,42 +503,76 @@ interface BuildNodeProps {
   x: number;
   y: number;
   isSetupTarget: boolean;
+  isBuildCampTarget: boolean;
+  isBuildStrongholdTarget: boolean;
+  isSelectedBuildTarget: boolean;
   onPlaceSetupCamp?: (roomCode: string, vertexId: string) => Promise<void>;
+  onSelectBuildTarget?: (selection: DirectBuildSelection) => void;
 }
 
-function BuildNode({ game, vertex, x, y, isSetupTarget, onPlaceSetupCamp }: BuildNodeProps) {
-  const canPlace = isSetupTarget && !!onPlaceSetupCamp;
+function BuildNode({ game, vertex, x, y, isSetupTarget, isBuildCampTarget, isBuildStrongholdTarget, isSelectedBuildTarget, onPlaceSetupCamp, onSelectBuildTarget }: BuildNodeProps) {
+  const isBuildTarget = isBuildCampTarget || isBuildStrongholdTarget;
+  const canPlace = (isSetupTarget && !!onPlaceSetupCamp) || (isBuildTarget && !!onSelectBuildTarget);
   const isOccupied = !!vertex.ownerPlayerId && !!vertex.structureType;
   const ownerColor = playerColor(game, vertex.ownerPlayerId);
+  const placeNode = () => {
+    if (isSetupTarget) {
+      void onPlaceSetupCamp?.(game.roomCode, vertex.vertexId);
+      return;
+    }
+
+    if (isBuildCampTarget) {
+      onSelectBuildTarget?.({ type: 'Camp', targetId: vertex.vertexId });
+      return;
+    }
+
+    onSelectBuildTarget?.({ type: 'Stronghold', targetId: vertex.vertexId });
+  };
+
+  const actionLabel = isSetupTarget
+    ? 'Place setup Camp on intersection'
+    : isBuildStrongholdTarget
+      ? 'Upgrade Camp to Stronghold'
+      : 'Build Camp on intersection';
 
   return (
     <g
       className="build-node"
+      aria-label={canPlace ? actionLabel : undefined}
       data-coastal={vertex.isCoastal}
+      data-direct-build-selected={isSelectedBuildTarget}
+      data-direct-build-target={isBuildTarget}
       data-occupied={isOccupied}
       data-setup-target={isSetupTarget}
+      style={isBuildTarget ? ({ '--build-target-color': playerColor(game, game.currentPlayerId) } as CSSProperties) : undefined}
       transform={`translate(${x} ${y})`}
-      onClick={canPlace ? () => void onPlaceSetupCamp?.(game.roomCode, vertex.vertexId) : undefined}
+      onClick={canPlace ? placeNode : undefined}
       role={canPlace ? 'button' : undefined}
       tabIndex={canPlace ? 0 : undefined}
       onKeyDown={canPlace ? (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          void onPlaceSetupCamp?.(game.roomCode, vertex.vertexId);
+          placeNode();
         }
       } : undefined}
     >
       <title>
-        {`${isOccupied ? `${vertex.structureType} owned by ${vertex.ownerPlayerId}` : isSetupTarget ? 'Place setup Camp' : vertex.vertexId}
+        {`${isBuildStrongholdTarget ? directBuildLabels.Stronghold.tooltip : isOccupied ? `${vertex.structureType} owned by ${vertex.ownerPlayerId}` : isSetupTarget ? 'Place setup Camp' : isBuildCampTarget ? directBuildLabels.Camp.tooltip : vertex.vertexId}
 Adjacent tiles: ${getVertexAdjacentTileSummary(game, vertex)}`}
       </title>
-      <circle className="build-node-ring" r={isSetupTarget ? 10.5 : isOccupied ? 8.5 : 4.2} />
-      {vertex.structureType === 'Stronghold' ? (
-        <path className="build-node-stronghold" d="M0 -13 L12 -4 L9 12 H-9 L-12 -4 Z" style={{ fill: ownerColor }} />
-      ) : (
-        <circle className="build-node-camp" r={isOccupied ? 9.5 : isSetupTarget ? 4.8 : 2} style={{ fill: isOccupied ? ownerColor : undefined }} />
-      )}
-      {isSetupTarget ? <circle className="build-node-pulse" r="13" /> : null}
+      <circle className="build-node-ring" r={isSetupTarget ? 10.5 : isBuildTarget ? 7 : isOccupied ? 8.5 : 4.2} />
+      {isOccupied ? <ellipse className="build-piece-color-base" cx="0" cy="8" rx={vertex.structureType === 'Stronghold' ? 12 : 10} ry="4.5" style={{ fill: ownerColor }} /> : null}
+      {isOccupied ? (
+        <image
+          className={`build-piece-asset build-piece-asset-${vertex.structureType?.toLowerCase()}`}
+          href={vertex.structureType === 'Stronghold' ? gameAssets.pieces.Stronghold.src : gameAssets.pieces.Camp.src}
+          height={vertex.structureType === 'Stronghold' ? 34 : 29}
+          width={vertex.structureType === 'Stronghold' ? 34 : 29}
+          x={vertex.structureType === 'Stronghold' ? -17 : -14.5}
+          y={vertex.structureType === 'Stronghold' ? -20 : -17}
+        />
+      ) : <circle className="build-node-camp" r={isSetupTarget ? 4.8 : isBuildTarget ? 3.4 : 2} />}
+      {isSetupTarget || isSelectedBuildTarget ? <circle className="build-node-pulse" r="13" /> : null}
     </g>
   );
 }
@@ -530,7 +598,7 @@ function BoardWaterLayer({ bounds, landBounds }: BoardWaterLayerProps) {
 
   return (
     <g className="board-water-layer">
-      <path className="water-frame-shadow" d={waterShape} transform="translate(8 10)" />
+      <path className="water-frame-shadow" d={waterShape} />
       <path className="water-frame-base" d={waterShape} />
       <path className="water-ripple-fill" d={waterShape} />
       <ellipse
@@ -554,16 +622,18 @@ function BoardWaterLayer({ bounds, landBounds }: BoardWaterLayerProps) {
 
 function waterFramePath(bounds: Bounds) {
   const { minX, minY, maxX, maxY, width, height } = bounds;
-  const topWave = Math.max(42, width * 0.08);
-  const sideWave = Math.max(46, height * 0.1);
+  const radius = Math.min(34, Math.max(22, Math.min(width, height) * 0.065));
 
   return [
-    `M ${round(minX + topWave)} ${round(minY + 14)}`,
-    `C ${round(minX + width * 0.22)} ${round(minY - 2)}, ${round(maxX - width * 0.24)} ${round(minY + 2)}, ${round(maxX - topWave)} ${round(minY + 18)}`,
-    `C ${round(maxX - 4)} ${round(minY + sideWave)}, ${round(maxX + 4)} ${round(maxY - sideWave)}, ${round(maxX - 26)} ${round(maxY - 46)}`,
-    `C ${round(maxX - width * 0.18)} ${round(maxY + 8)}, ${round(minX + width * 0.2)} ${round(maxY + 4)}, ${round(minX + 58)} ${round(maxY - 12)}`,
-    `C ${round(minX + 10)} ${round(maxY - 50)}, ${round(minX - 2)} ${round(minY + sideWave)}, ${round(minX + 20)} ${round(minY + 58)}`,
-    `C ${round(minX + 28)} ${round(minY + 34)}, ${round(minX + 36)} ${round(minY + 22)}, ${round(minX + topWave)} ${round(minY + 14)}`,
+    `M ${round(minX + radius)} ${minY}`,
+    `H ${round(maxX - radius)}`,
+    `Q ${maxX} ${minY} ${maxX} ${round(minY + radius)}`,
+    `V ${round(maxY - radius)}`,
+    `Q ${maxX} ${maxY} ${round(maxX - radius)} ${maxY}`,
+    `H ${round(minX + radius)}`,
+    `Q ${minX} ${maxY} ${minX} ${round(maxY - radius)}`,
+    `V ${round(minY + radius)}`,
+    `Q ${minX} ${minY} ${round(minX + radius)} ${minY}`,
     'Z'
   ].join(' ');
 }
@@ -645,7 +715,7 @@ function HarborMarker({ slot, marker, artRotation, isOwned }: HarborLayout) {
     <g
       className={`harbor-marker harbor-marker-${resourceClass}`}
       data-owned={isOwned}
-      transform={`translate(${marker.x} ${marker.y}) scale(0.76)`}
+      transform={`translate(${marker.x} ${marker.y}) scale(0.66)`}
     >
       <title>
         {`${slot.harborSlotId} - ${slot.harborType} ${slot.tradeRate}:1 harbor on ${slot.adjacentEdgeId}; nodes ${slot.adjacentVertexIds.join(', ')}`}
@@ -657,11 +727,11 @@ function HarborMarker({ slot, marker, artRotation, isOwned }: HarborLayout) {
       </g>
       <path className="harbor-plaque-shadow" d={harborPlaquePath(3)} />
       <path className="harbor-plaque-back" d={harborPlaquePath(0)} />
-      <path className="harbor-plaque-face" d="M-30 -17 H30 Q36 -17 36 -11 V14 Q36 20 30 20 H-30 Q-36 20 -36 14 V-11 Q-36 -17 -30 -17 Z" />
-      <path className="harbor-plaque-accent" d="M-26 -15 H26 Q32 -15 32 -10 V-8 H-32 V-10 Q-32 -15 -26 -15 Z" />
+      <path className="harbor-plaque-face" d="M-30 -18 H30 L36 -11 V14 L30 20 H-30 L-36 14 V-11 Z" />
+      <path className="harbor-plaque-accent" d="M-29 -16 H29 L33 -11 V-8 H-33 V-11 Z" />
       <path className="harbor-plaque-notch" d="M-37 -3 H-33 M33 -3 H37 M-37 8 H-33 M33 8 H37" />
-      <circle className="harbor-icon-disc" cx="-20" cy="3" r="11.2" />
-      <HarborIcon harborType={slot.harborType} />
+      <circle className="harbor-icon-disc" cx="-20" cy="3" r="12.2" />
+      <image aria-hidden="true" className="harbor-resource-asset" href={gameAssets.harbors[slot.harborType].src} height="22" width="22" x="-31" y="-8" />
       <HarborLabel slot={slot} />
       {isOwned ? <circle className="harbor-owned-dot" cx="29" cy="-17" r="5" /> : null}
     </g>
@@ -673,63 +743,14 @@ interface HarborLabelProps {
 }
 
 function HarborLabel({ slot }: HarborLabelProps) {
-  const label = slot.harborType === 'Generic' ? 'Any' : slot.harborType;
+  const isGeneric = slot.harborType === 'Generic';
 
   return (
     <g className="harbor-label">
-      <text className="harbor-label-rate" x="9" y="-1">{slot.tradeRate}:1</text>
-      <text className="harbor-label-type" x="9" y="12">{label}</text>
+      <text className="harbor-label-rate" x="9" y={isGeneric ? -1 : 6}>{slot.tradeRate}:1</text>
+      {isGeneric ? <text className="harbor-label-type" x="9" y="12">Any</text> : null}
     </g>
   );
-}
-
-function HarborIcon({ harborType }: { harborType: HarborSlot['harborType'] }) {
-  switch (harborType) {
-    case 'Wood':
-      return (
-        <g className="harbor-resource-icon harbor-resource-icon-wood" transform="translate(-20 3) scale(0.9)">
-          <path d="M-7 6 L-2 -7 L4 6 Z" />
-          <path d="M1 7 L6 -5 L11 7 Z" />
-          <path d="M-2 6 V11 M6 7 V11" />
-        </g>
-      );
-    case 'Clay':
-      return (
-        <g className="harbor-resource-icon harbor-resource-icon-clay" transform="translate(-20 3) scale(0.9)">
-          <path d="M-10 -5 H10 V8 H-10 Z" />
-          <path d="M-10 1 H10 M-2 -5 V1 M5 1 V8" />
-        </g>
-      );
-    case 'Wool':
-      return (
-        <g className="harbor-resource-icon harbor-resource-icon-wool" transform="translate(-20 3) scale(0.9)">
-          <path d="M-11 4 C-7 -5 -1 5 4 -3 C8 -8 11 -3 12 3" />
-          <path d="M-8 10 C-3 5 4 12 10 6" />
-        </g>
-      );
-    case 'Grain':
-      return (
-        <g className="harbor-resource-icon harbor-resource-icon-grain" transform="translate(-20 3) scale(0.9)">
-          <path d="M0 11 V-11" />
-          <path d="M0 -7 L-7 -11 M0 -3 L7 -8 M0 1 L-8 -4 M0 5 L8 0 M0 8 L-6 4" />
-        </g>
-      );
-    case 'Stone':
-      return (
-        <g className="harbor-resource-icon harbor-resource-icon-stone" transform="translate(-20 3) scale(0.9)">
-          <path d="M-11 8 L-5 -8 L2 4 L8 -5 L12 8 Z" />
-          <path d="M-4 -4 L-1 8 M7 -2 L4 8" />
-        </g>
-      );
-    case 'Generic':
-      return (
-        <g className="harbor-resource-icon harbor-resource-icon-generic" transform="translate(-20 3) scale(0.9)">
-          <circle cx="0" cy="-6" r="3.2" />
-          <path d="M0 -3 V9 M-8 0 H8" />
-          <path d="M-8 4 C-6 10 6 10 8 4" />
-        </g>
-      );
-  }
 }
 
 function harborPlaquePath(yOffset: number) {
@@ -881,16 +902,16 @@ function TerrainDefs() {
         <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#1f342f" floodOpacity="0.3" />
       </filter>
 
-      <radialGradient id="water-gradient" cx="48%" cy="45%" r="74%">
-        <stop offset="0%" stopColor="#9fd5cf" />
-        <stop offset="54%" stopColor="#55aab0" />
-        <stop offset="100%" stopColor="#2d7280" />
+      <radialGradient id="water-gradient" cx="48%" cy="45%" r="76%">
+        <stop offset="0%" stopColor="#b9ddd9" />
+        <stop offset="58%" stopColor="#7fb7b5" />
+        <stop offset="100%" stopColor="#4f8f95" />
       </radialGradient>
 
       <pattern id="water-ripple-pattern" width="124" height="72" patternUnits="userSpaceOnUse">
-        <path d="M-14 22 C5 11 24 31 43 19 C59 9 75 26 96 15 C107 10 118 13 134 18" fill="none" stroke="#dffbf5" strokeWidth="2.8" opacity="0.18" />
-        <path d="M6 50 C22 41 41 57 60 45 C75 36 91 44 110 39" fill="none" stroke="#1d6677" strokeWidth="2.2" opacity="0.12" />
-        <path d="M34 5 C50 -3 66 12 82 5 C94 0 104 2 118 8" fill="none" stroke="#eafff9" strokeWidth="2" opacity="0.12" />
+        <path d="M-14 22 C5 11 24 31 43 19 C59 9 75 26 96 15 C107 10 118 13 134 18" fill="none" stroke="#eefbf7" strokeWidth="2.2" opacity="0.18" />
+        <path d="M6 50 C22 41 41 57 60 45 C75 36 91 44 110 39" fill="none" stroke="#356f78" strokeWidth="1.8" opacity="0.1" />
+        <path d="M34 5 C50 -3 66 12 82 5 C94 0 104 2 118 8" fill="none" stroke="#f8fff9" strokeWidth="1.7" opacity="0.12" />
       </pattern>
 
       <filter id="terrain-grain-noise" x="0%" y="0%" width="100%" height="100%">
@@ -909,85 +930,91 @@ function TerrainDefs() {
       </linearGradient>
 
       <radialGradient id="terrain-base-wood" cx="36%" cy="28%" r="78%">
-        <stop offset="0%" stopColor="#5f9b55" />
-        <stop offset="46%" stopColor="#2f6f3f" />
-        <stop offset="100%" stopColor="#173f2d" />
+        <stop offset="0%" stopColor="#4f8a56" />
+        <stop offset="46%" stopColor="#245b37" />
+        <stop offset="100%" stopColor="#123523" />
       </radialGradient>
 
       <radialGradient id="terrain-base-clay" cx="38%" cy="26%" r="76%">
-        <stop offset="0%" stopColor="#e8a064" />
-        <stop offset="48%" stopColor="#c97743" />
-        <stop offset="100%" stopColor="#8b4632" />
+        <stop offset="0%" stopColor="#db8f63" />
+        <stop offset="48%" stopColor="#bd6844" />
+        <stop offset="100%" stopColor="#7d3f33" />
       </radialGradient>
 
       <radialGradient id="terrain-base-wool" cx="38%" cy="24%" r="80%">
-        <stop offset="0%" stopColor="#f0f1bb" />
-        <stop offset="52%" stopColor="#d7e89c" />
-        <stop offset="100%" stopColor="#a9c56c" />
+        <stop offset="0%" stopColor="#f1f3cf" />
+        <stop offset="52%" stopColor="#dce9b1" />
+        <stop offset="100%" stopColor="#adc77a" />
       </radialGradient>
 
       <radialGradient id="terrain-base-grain" cx="40%" cy="26%" r="78%">
-        <stop offset="0%" stopColor="#f3d96f" />
-        <stop offset="52%" stopColor="#d6ae3d" />
-        <stop offset="100%" stopColor="#9e7928" />
+        <stop offset="0%" stopColor="#efd06b" />
+        <stop offset="52%" stopColor="#d0a540" />
+        <stop offset="100%" stopColor="#997329" />
       </radialGradient>
 
       <radialGradient id="terrain-base-stone" cx="38%" cy="24%" r="80%">
-        <stop offset="0%" stopColor="#c0c5c0" />
-        <stop offset="50%" stopColor="#8e9897" />
-        <stop offset="100%" stopColor="#566166" />
+        <stop offset="0%" stopColor="#c4cbc9" />
+        <stop offset="50%" stopColor="#8d999b" />
+        <stop offset="100%" stopColor="#58666c" />
       </radialGradient>
 
       <radialGradient id="terrain-base-none" cx="40%" cy="22%" r="82%">
-        <stop offset="0%" stopColor="#ead49f" />
-        <stop offset="52%" stopColor="#d0ad72" />
-        <stop offset="100%" stopColor="#9a7748" />
+        <stop offset="0%" stopColor="#ead7ab" />
+        <stop offset="52%" stopColor="#d1b27a" />
+        <stop offset="100%" stopColor="#a18152" />
       </radialGradient>
 
-      <pattern id="terrain-texture-wood" width="72" height="58" patternUnits="userSpaceOnUse">
+      <pattern id="terrain-texture-wood" width="180" height="156" patternUnits="userSpaceOnUse">
+        <image href={gameAssets.terrain.Wood.src} width="180" height="156" preserveAspectRatio="xMidYMid slice" opacity="0.82" />
         <rect width="72" height="58" filter="url(#terrain-grain-noise)" opacity="0.38" />
-        <path d="M-8 49 C7 31 18 42 28 17 C39 38 50 28 63 9 C68 19 73 21 80 11" stroke="#123823" strokeWidth="5.2" fill="none" opacity="0.36" />
-        <path d="M9 48 L21 16 L34 48 Z M-4 42 L7 13 L21 42 Z M41 50 L53 18 L68 50 Z" fill="#17472c" opacity="0.42" />
-        <path d="M13 47 V58 M21 45 V58 M55 48 V58" stroke="#0f3220" strokeWidth="2.3" opacity="0.34" />
-        <circle cx="38" cy="25" r="5.2" fill="#0f3321" opacity="0.2" />
-        <circle cx="62" cy="36" r="3.8" fill="#356d43" opacity="0.18" />
+        <path d="M-8 49 C7 31 18 42 28 17 C39 38 50 28 63 9 C68 19 73 21 80 11" stroke="#0d3020" strokeWidth="5" fill="none" opacity="0.4" />
+        <path d="M9 48 L21 16 L34 48 Z M-4 42 L7 13 L21 42 Z M41 50 L53 18 L68 50 Z" fill="#113d27" opacity="0.5" />
+        <path d="M13 47 V58 M21 45 V58 M55 48 V58" stroke="#092716" strokeWidth="2.2" opacity="0.34" />
+        <circle cx="38" cy="25" r="5.2" fill="#0b2f1e" opacity="0.24" />
+        <circle cx="62" cy="36" r="3.8" fill="#477d4e" opacity="0.14" />
       </pattern>
 
-      <pattern id="terrain-texture-clay" width="66" height="54" patternUnits="userSpaceOnUse">
+      <pattern id="terrain-texture-clay" width="180" height="156" patternUnits="userSpaceOnUse">
+        <image href={gameAssets.terrain.Clay.src} width="180" height="156" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
         <rect width="66" height="54" filter="url(#terrain-grain-noise)" opacity="0.24" />
-        <path d="M0 13 H66 M0 33 H66 M16 0 V13 M43 13 V33 M23 33 V54 M58 33 V54" stroke="#7f3628" strokeWidth="2.8" opacity="0.22" />
-        <path d="M6 25 C17 13 29 36 43 22 C52 13 60 19 68 25" stroke="#f0b07a" strokeWidth="2.2" opacity="0.26" fill="none" />
-        <path d="M11 44 L21 34 L33 44 M42 10 L51 4 L63 13" stroke="#672d24" strokeWidth="1.8" opacity="0.16" fill="none" />
+        <path d="M0 13 H66 M0 33 H66 M16 0 V13 M43 13 V33 M23 33 V54 M58 33 V54" stroke="#74382f" strokeWidth="2.5" opacity="0.2" />
+        <path d="M6 25 C17 13 29 36 43 22 C52 13 60 19 68 25" stroke="#edb184" strokeWidth="2" opacity="0.24" fill="none" />
+        <path d="M11 44 L21 34 L33 44 M42 10 L51 4 L63 13" stroke="#5d3028" strokeWidth="1.7" opacity="0.15" fill="none" />
         <circle cx="51" cy="43" r="2.2" fill="#7f3628" opacity="0.16" />
       </pattern>
 
-      <pattern id="terrain-texture-wool" width="72" height="56" patternUnits="userSpaceOnUse">
+      <pattern id="terrain-texture-wool" width="180" height="156" patternUnits="userSpaceOnUse">
+        <image href={gameAssets.terrain.Wool.src} width="180" height="156" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
         <rect width="72" height="56" filter="url(#terrain-grain-noise)" opacity="0.1" />
-        <path d="M-6 41 C10 25 26 43 42 26 C53 15 63 23 78 12" stroke="#8fae54" strokeWidth="2.8" fill="none" opacity="0.24" />
-        <path d="M-8 22 C8 10 24 25 42 12 C54 3 65 8 78 0" stroke="#eef5c7" strokeWidth="3" fill="none" opacity="0.32" />
-        <path d="M8 49 L11 42 M26 47 L30 39 M48 46 L52 39 M62 35 L66 29" stroke="#7b9d49" strokeWidth="1.7" opacity="0.16" />
-        <circle cx="35" cy="35" r="2.5" fill="#f5f8d2" opacity="0.22" />
+        <path d="M-6 41 C10 25 26 43 42 26 C53 15 63 23 78 12" stroke="#86a75a" strokeWidth="2.4" fill="none" opacity="0.2" />
+        <path d="M-8 22 C8 10 24 25 42 12 C54 3 65 8 78 0" stroke="#f7f8d6" strokeWidth="2.7" fill="none" opacity="0.34" />
+        <path d="M8 49 L11 42 M26 47 L30 39 M48 46 L52 39 M62 35 L66 29" stroke="#7d9c54" strokeWidth="1.5" opacity="0.14" />
+        <circle cx="35" cy="35" r="2.5" fill="#faf7da" opacity="0.22" />
       </pattern>
 
-      <pattern id="terrain-texture-grain" width="58" height="58" patternUnits="userSpaceOnUse">
+      <pattern id="terrain-texture-grain" width="180" height="156" patternUnits="userSpaceOnUse">
+        <image href={gameAssets.terrain.Grain.src} width="180" height="156" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
         <rect width="58" height="58" filter="url(#terrain-grain-noise)" opacity="0.2" />
-        <path d="M6 60 V3 M20 62 V8 M36 60 V0 M53 60 V11" stroke="#92701e" strokeWidth="2" opacity="0.27" />
-        <path d="M6 13 L14 6 M6 22 L15 15 M20 18 L30 9 M20 30 L30 21 M36 13 L46 5 M36 26 L49 16 M53 24 L61 17" stroke="#ffe07a" strokeWidth="2.1" opacity="0.34" />
-        <path d="M-3 42 C12 32 27 45 41 34 C50 27 58 31 66 24" stroke="#b88a2c" strokeWidth="1.9" opacity="0.18" fill="none" />
+        <path d="M6 60 V3 M20 62 V8 M36 60 V0 M53 60 V11" stroke="#8f6e25" strokeWidth="1.8" opacity="0.24" />
+        <path d="M6 13 L14 6 M6 22 L15 15 M20 18 L30 9 M20 30 L30 21 M36 13 L46 5 M36 26 L49 16 M53 24 L61 17" stroke="#f9dd86" strokeWidth="2" opacity="0.34" />
+        <path d="M-3 42 C12 32 27 45 41 34 C50 27 58 31 66 24" stroke="#b58932" strokeWidth="1.7" opacity="0.16" fill="none" />
       </pattern>
 
-      <pattern id="terrain-texture-stone" width="70" height="58" patternUnits="userSpaceOnUse">
+      <pattern id="terrain-texture-stone" width="180" height="156" patternUnits="userSpaceOnUse">
+        <image href={gameAssets.terrain.Stone.src} width="180" height="156" preserveAspectRatio="xMidYMid slice" opacity="0.8" />
         <rect width="70" height="58" filter="url(#terrain-grain-noise)" opacity="0.23" />
-        <path d="M3 47 L17 14 L29 39 L44 7 L68 46 Z" fill="#4f5b60" opacity="0.24" />
-        <path d="M-4 25 L10 10 L23 25 L33 16 L50 31 L73 12" stroke="#d5d8d2" strokeWidth="2.8" opacity="0.26" fill="none" />
-        <path d="M13 48 L22 29 M43 40 L52 18 M28 11 L35 27" stroke="#323d42" strokeWidth="2" opacity="0.22" />
+        <path d="M3 47 L17 14 L29 39 L44 7 L68 46 Z" fill="#536269" opacity="0.23" />
+        <path d="M-4 25 L10 10 L23 25 L33 16 L50 31 L73 12" stroke="#dce0dc" strokeWidth="2.4" opacity="0.24" fill="none" />
+        <path d="M13 48 L22 29 M43 40 L52 18 M28 11 L35 27" stroke="#34434a" strokeWidth="1.8" opacity="0.2" />
         <circle cx="54" cy="44" r="3" fill="#d6dad6" opacity="0.15" />
       </pattern>
 
-      <pattern id="terrain-texture-none" width="68" height="56" patternUnits="userSpaceOnUse">
+      <pattern id="terrain-texture-none" width="180" height="156" patternUnits="userSpaceOnUse">
+        <image href={gameAssets.terrain.None.src} width="180" height="156" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
         <rect width="68" height="56" filter="url(#terrain-grain-noise)" opacity="0.18" />
-        <path d="M-3 36 C12 20 27 40 44 25 C55 16 62 22 72 28" stroke="#856940" strokeWidth="2.7" opacity="0.22" fill="none" />
-        <path d="M-5 17 C14 4 27 21 43 11 C54 4 62 8 72 14" stroke="#efd49f" strokeWidth="2.1" opacity="0.26" fill="none" />
+        <path d="M-3 36 C12 20 27 40 44 25 C55 16 62 22 72 28" stroke="#876d47" strokeWidth="2.4" opacity="0.18" fill="none" />
+        <path d="M-5 17 C14 4 27 21 43 11 C54 4 62 8 72 14" stroke="#f0dbb0" strokeWidth="1.9" opacity="0.24" fill="none" />
         <circle cx="14" cy="15" r="2" fill="#86663b" opacity="0.18" />
         <circle cx="50" cy="43" r="2.5" fill="#f0d49b" opacity="0.28" />
       </pattern>

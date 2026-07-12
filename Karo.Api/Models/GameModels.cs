@@ -101,12 +101,24 @@ public enum HarborType
     Stone
 }
 
+public enum PlayerTradeOfferStatus
+{
+    Pending,
+    Accepted,
+    Rejected,
+    Cancelled,
+    Expired
+}
+
 public sealed class GameState
 {
     public string RoomCode { get; init; } = "";
+    public string MatchId { get; init; } = Guid.NewGuid().ToString("N");
+    public long GameStateVersion { get; set; } = 1;
     public BoardState Board { get; init; } = new();
     public List<PlayerGameState> Players { get; } = new();
     public List<DevelopmentCard> DevelopmentDeck { get; } = new();
+    public List<PlayerTradeOffer> TradeOffers { get; } = new();
     public List<GameLogEntry> Log { get; } = new();
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;
     public GameStatus Status { get; set; } = GameStatus.InProgress;
@@ -136,8 +148,11 @@ public sealed class GameState
     public string? LargestArmyPlayerId { get; set; }
     public int LargestArmyKnightCount { get; set; }
     public int? LargestArmyAwardedAtTurn { get; set; }
+    public string? LongestTrailPlayerId { get; set; }
+    public int LongestTrailLength { get; set; }
     public string? WinnerPlayerId { get; set; }
     public DateTimeOffset? FinishedAt { get; set; }
+    public GamePauseState? Pause { get; set; }
 
     public PlayerGameState CurrentPlayer => Players[CurrentPlayerIndex];
     public string? CurrentSetupPlayerId => Phase == GamePhase.Setup
@@ -149,12 +164,16 @@ public sealed class PlayerGameState
 {
     public string PlayerId { get; init; } = "";
     public string PlayerName { get; init; } = "";
-    public bool IsHost { get; init; }
+    public bool IsHost { get; set; }
+    public PlayerConnectionStatus ConnectionStatus { get; set; } = PlayerConnectionStatus.Connected;
+    public bool HasForfeited { get; set; }
+    public string PlayerColor { get; init; } = "";
     public Dictionary<ResourceType, int> Supplies { get; } = ResourceTypes.All.ToDictionary(resource => resource, _ => 0);
     public List<PlayerDevelopmentCard> DevelopmentCards { get; } = new();
     public int TrailsBuilt { get; set; }
     public int CampsBuilt { get; set; }
     public int StrongholdsBuilt { get; set; }
+    public int LongestTrailLength { get; set; }
     public int PlayedKnightCount { get; set; }
     public bool HasPlayedDevelopmentCardThisTurn { get; set; }
     public ActiveDevelopmentCardEffect? ActiveDevelopmentCardEffect { get; set; }
@@ -163,6 +182,7 @@ public sealed class PlayerGameState
 
 public sealed class BoardState
 {
+    public int BoardSeed { get; init; }
     public List<HexTile> Tiles { get; } = new();
     public List<BoardVertex> Vertices { get; } = new();
     public List<BoardEdge> Edges { get; } = new();
@@ -176,8 +196,18 @@ public sealed class HexTile
     public int Q { get; init; }
     public int R { get; init; }
     public TileResourceType ResourceType { get; init; }
-    public int? NumberToken { get; init; }
+    public int? NumberToken { get; set; }
     public bool IsBlocked { get; set; }
+    public List<string> AdjacentTileIds { get; } = new();
+}
+
+public sealed class GamePauseState
+{
+    public bool IsPaused { get; set; }
+    public string Reason { get; init; } = "";
+    public string DisconnectedPlayerId { get; init; } = "";
+    public DateTimeOffset PausedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset ReconnectDeadline { get; init; }
 }
 
 public sealed class BoardVertex
@@ -187,6 +217,8 @@ public sealed class BoardVertex
     public double Y { get; init; }
     public bool IsCoastal { get; set; }
     public List<string> AdjacentTileIds { get; } = new();
+    public List<string> AdjacentVertexIds { get; } = new();
+    public List<string> AdjacentEdgeIds { get; } = new();
     public string? OwnerPlayerId { get; set; }
     public BoardStructureType? StructureType { get; set; }
 }
@@ -196,6 +228,7 @@ public sealed class BoardEdge
     public string EdgeId { get; init; } = "";
     public string StartVertexId { get; init; } = "";
     public string EndVertexId { get; init; } = "";
+    public List<string> AdjacentTileIds { get; } = new();
     public string? OwnerPlayerId { get; set; }
 }
 
@@ -233,6 +266,20 @@ public sealed record BankTradeRate(
     int Rate,
     BankTradeRateSource Source,
     string? PortId);
+
+public sealed class PlayerTradeOffer
+{
+    public string TradeOfferId { get; init; } = "";
+    public string RoomCode { get; init; } = "";
+    public int TurnNumber { get; init; }
+    public string ProposerPlayerId { get; init; } = "";
+    public string TargetPlayerId { get; init; } = "";
+    public Dictionary<ResourceType, int> OfferedResources { get; init; } = new();
+    public Dictionary<ResourceType, int> RequestedResources { get; init; } = new();
+    public PlayerTradeOfferStatus Status { get; set; } = PlayerTradeOfferStatus.Pending;
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? ResolvedAt { get; set; }
+}
 
 public sealed class DevelopmentCard
 {
