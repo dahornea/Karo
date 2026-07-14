@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" data-style="karo-resource-v2">
+  <g stroke="#24352d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.5 18.3 11 10.5h10l4.5 7.8-4.5 7.2H11Z" fill="#326449"/>
+    <path d="M10.8 12.2h10.4M8.1 18.3h15.8M10.8 24h10.4" fill="none" opacity=".52"/>
+    <ellipse cx="10.7" cy="18.3" rx="4.2" ry="7.2" fill="#d49a58"/>
+    <ellipse cx="10.7" cy="18.3" rx="2.1" ry="4.5" fill="none" stroke="#855f38" stroke-width="1.2"/>
+    <path d="M16.2 10.5V7.2M14.2 7.2h4" fill="none"/>
+    <path d="M18.8 10.5V5.8M16.8 5.8h4" fill="none"/>
+  </g>
+</svg>

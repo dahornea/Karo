@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" data-style="karo-resource-v2">
+  <g stroke="#49332c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 17.2 13 13l7.2 3.5-8.5 4.4Z" fill="#df8a5e"/>
+    <path d="m11.7 20.9 8.5-4.4v6.2l-8.5 4.4Z" fill="#b85f43"/>
+    <path d="m4.5 17.2 7.2 3.7v6.2l-7.2-3.7Z" fill="#c96d4c"/>
+    <path d="M11.8 8.4 19 4.8l8.5 4.3-7.3 3.8Z" fill="#ed9a69"/>
+    <path d="m20.2 12.9 7.3-3.8v6.1l-7.3 3.8Z" fill="#b85f43"/>
+    <path d="m11.8 8.4 8.4 4.5V19l-3.4-1.8-5-2.5Z" fill="#cc704e"/>
+    <path d="m16.4 6.2 8.4 4.3" fill="none" stroke="#ffd0a7" stroke-width="1.1" opacity=".8"/>
+  </g>
+</svg>

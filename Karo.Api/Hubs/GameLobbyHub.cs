@@ -9,26 +9,37 @@ public sealed class GameLobbyHub : Hub
 {
     private readonly LobbyService _lobbyService;
     private readonly GameService _gameService;
+    private readonly RoomLifecycleService _roomLifecycleService;
     private readonly DebugGameService _debugGameService;
+    private readonly ILogger<GameLobbyHub> _logger;
 
-    public GameLobbyHub(LobbyService lobbyService, GameService gameService, DebugGameService debugGameService)
+    public GameLobbyHub(
+        LobbyService lobbyService,
+        GameService gameService,
+        RoomLifecycleService roomLifecycleService,
+        DebugGameService debugGameService,
+        ILogger<GameLobbyHub> logger)
     {
         _lobbyService = lobbyService;
         _gameService = gameService;
+        _roomLifecycleService = roomLifecycleService;
         _debugGameService = debugGameService;
+        _logger = logger;
     }
 
     public async Task<JoinRoomResultDto> CreateRoom(string playerName)
     {
         try
         {
-            var room = _lobbyService.CreateRoom(Context.ConnectionId, playerName);
+            var result = _roomLifecycleService.CreateRoom(Context.ConnectionId, playerName);
+            var room = result.Room;
             await Groups.AddToGroupAsync(Context.ConnectionId, room.RoomCode);
             var roomDto = room.ToDto();
             await Clients.Group(room.RoomCode).SendAsync("RoomUpdated", roomDto);
-
-            var currentPlayer = room.Players.Single(player => player.ConnectionId == Context.ConnectionId);
-            return new JoinRoomResultDto(currentPlayer.PlayerId, roomDto);
+            return new JoinRoomResultDto(
+                result.Player.PlayerId,
+                roomDto,
+                new PlayerSessionDto(room.RoomCode, result.Player.PlayerId, result.ReconnectToken));
         }
         catch (LobbyException ex)
         {
@@ -40,13 +51,15 @@ public sealed class GameLobbyHub : Hub
     {
         try
         {
-            var room = _lobbyService.JoinRoom(Context.ConnectionId, roomCode, playerName);
+            var result = _roomLifecycleService.JoinRoom(Context.ConnectionId, roomCode, playerName);
+            var room = result.Room;
             await Groups.AddToGroupAsync(Context.ConnectionId, room.RoomCode);
             var roomDto = room.ToDto();
             await Clients.Group(room.RoomCode).SendAsync("RoomUpdated", roomDto);
-
-            var currentPlayer = room.Players.Single(player => player.ConnectionId == Context.ConnectionId);
-            return new JoinRoomResultDto(currentPlayer.PlayerId, roomDto);
+            return new JoinRoomResultDto(
+                result.Player.PlayerId,
+                roomDto,
+                new PlayerSessionDto(room.RoomCode, result.Player.PlayerId, result.ReconnectToken));
         }
         catch (LobbyException ex)
         {
@@ -56,14 +69,208 @@ public sealed class GameLobbyHub : Hub
 
     public async Task StartGame(string roomCode)
     {
+        Room? startedRoom = null;
         try
         {
             var room = _lobbyService.StartGame(Context.ConnectionId, roomCode);
+            startedRoom = room;
             var game = _gameService.StartGame(room);
+            _logger.LogInformation("Started match {MatchId} in room {RoomCode} with host {HostPlayerId}.", game.MatchId, room.RoomCode, room.HostPlayerId);
             await Clients.Group(room.RoomCode).SendAsync("RoomUpdated", room.ToDto());
             await BroadcastGameState(room, game, "GameStarted");
         }
         catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+        catch (GameRuleException ex)
+        {
+            if (startedRoom is not null)
+            {
+                var rolledBackRoom = _lobbyService.RollbackGameStart(Context.ConnectionId, startedRoom.RoomCode);
+                await Clients.Group(rolledBackRoom.RoomCode).SendAsync("RoomUpdated", rolledBackRoom.ToDto());
+            }
+
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task SetReady(string roomCode, bool isReady)
+    {
+        try
+        {
+            var room = _lobbyService.SetReady(Context.ConnectionId, roomCode, isReady);
+            await Clients.Group(room.RoomCode).SendAsync("RoomUpdated", room.ToDto());
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task LeaveRoom(string roomCode)
+    {
+        try
+        {
+            var result = _roomLifecycleService.LeaveLobby(Context.ConnectionId, roomCode);
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomCode);
+            if (result.RoomRemoved)
+            {
+                await Clients.Group(roomCode).SendAsync("RoomClosed", roomCode);
+            }
+            else if (result.Room is not null)
+            {
+                await Clients.Group(result.Room.RoomCode).SendAsync("RoomUpdated", result.Room.ToDto());
+            }
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task ForfeitMatch(string roomCode)
+    {
+        try
+        {
+            var game = _roomLifecycleService.ForfeitMatch(Context.ConnectionId, roomCode);
+            var room = _lobbyService.GetRoom(roomCode)
+                ?? throw new LobbyException("This room no longer exists.", "RoomNotFound");
+            game = _roomLifecycleService.AfterGameMutation(room, game) ?? game;
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomCode);
+            await Clients.Group(room.RoomCode).SendAsync("RoomUpdated", room.ToDto());
+            await BroadcastGameState(room, game, "GameUpdated");
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+        catch (GameRuleException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task ContinueWithoutPlayer(string roomCode, string timedOutPlayerId)
+    {
+        try
+        {
+            var game = _roomLifecycleService.ContinueWithoutPlayer(Context.ConnectionId, roomCode, timedOutPlayerId);
+            var room = _lobbyService.GetRoom(roomCode)
+                ?? throw new LobbyException("This room no longer exists.", "RoomNotFound");
+            game = _roomLifecycleService.AfterGameMutation(room, game) ?? game;
+            await Clients.Group(room.RoomCode).SendAsync("RoomUpdated", room.ToDto());
+            await BroadcastGameState(room, game, "GameUpdated");
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+        catch (GameRuleException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task EndPausedMatch(string roomCode)
+    {
+        try
+        {
+            var game = _roomLifecycleService.EndPausedMatch(Context.ConnectionId, roomCode);
+            var room = _roomLifecycleService.MarkPostGame(game);
+            await Clients.Group(room.RoomCode).SendAsync("RoomUpdated", room.ToDto());
+            await BroadcastGameState(room, game, "GameUpdated");
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+        catch (GameRuleException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task ReturnRoomToLobby(string roomCode)
+    {
+        try
+        {
+            var result = _roomLifecycleService.ReturnToLobby(Context.ConnectionId, roomCode);
+            if (result.RoomRemoved)
+            {
+                await Clients.Group(roomCode).SendAsync("RoomClosed", roomCode);
+                return;
+            }
+
+            if (result.Room is not null)
+            {
+                await Clients.Group(result.Room.RoomCode).SendAsync("RoomUpdated", result.Room.ToDto());
+                await Clients.Group(result.Room.RoomCode).SendAsync("ReturnedToLobby", result.Room.ToDto());
+            }
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task<ResumeRoomSessionResultDto> ResumeRoomSession(string roomCode, string playerId, string reconnectToken)
+    {
+        try
+        {
+            var result = _roomLifecycleService.ResumeRoomSession(Context.ConnectionId, roomCode, playerId, reconnectToken);
+            await Groups.AddToGroupAsync(Context.ConnectionId, result.Room.RoomCode);
+            if (!string.IsNullOrWhiteSpace(result.ReplacedConnectionId))
+            {
+                await Clients.Client(result.ReplacedConnectionId).SendAsync("SessionReplaced");
+                await Groups.RemoveFromGroupAsync(result.ReplacedConnectionId, result.Room.RoomCode);
+            }
+
+            await Clients.Group(result.Room.RoomCode).SendAsync("RoomUpdated", result.Room.ToDto());
+            var game = _gameService.GetGame(result.Room.RoomCode);
+            if (game is not null)
+            {
+                await BroadcastGameState(result.Room, game, "GameUpdated");
+            }
+
+            return new ResumeRoomSessionResultDto(
+                result.Room.ToDto(),
+                game?.ToDto(result.Player.PlayerId),
+                new PlayerSessionDto(result.Room.RoomCode, result.Player.PlayerId, result.ReconnectToken));
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+        catch (GameRuleException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
+    public async Task<ResumeRoomSessionResultDto> RecoverCurrentSession()
+    {
+        try
+        {
+            var result = _roomLifecycleService.RecoverCurrentSession(Context.ConnectionId);
+            await Groups.AddToGroupAsync(Context.ConnectionId, result.Room.RoomCode);
+            await Clients.Group(result.Room.RoomCode).SendAsync("RoomUpdated", result.Room.ToDto());
+            var game = _gameService.GetGame(result.Room.RoomCode);
+            if (game is not null)
+            {
+                await BroadcastGameState(result.Room, game, "GameUpdated");
+            }
+
+            return new ResumeRoomSessionResultDto(
+                result.Room.ToDto(),
+                game?.ToDto(result.Player.PlayerId),
+                new PlayerSessionDto(result.Room.RoomCode, result.Player.PlayerId, result.ReconnectToken));
+        }
+        catch (LobbyException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+        catch (GameRuleException ex)
         {
             throw HubErrorSerializer.ToHubException(ex);
         }
@@ -72,8 +279,10 @@ public sealed class GameLobbyHub : Hub
     public GameStateDto? GetGameState(string roomCode)
     {
         var room = _lobbyService.GetRoomForConnection(Context.ConnectionId);
-        var player = room?.Players.FirstOrDefault(player => player.ConnectionId == Context.ConnectionId);
-        return _gameService.GetGame(roomCode)?.ToDto(player?.PlayerId);
+        var player = _lobbyService.GetPlayerForConnection(Context.ConnectionId);
+        return room is not null && string.Equals(room.RoomCode, roomCode, StringComparison.OrdinalIgnoreCase)
+            ? _gameService.GetGame(roomCode)?.ToDto(player?.PlayerId)
+            : null;
     }
 
     public async Task BuyDevelopmentCard(string roomCode)
@@ -93,6 +302,39 @@ public sealed class GameLobbyHub : Hub
             _gameService.MaritimeTrade(roomCode, player.PlayerId, ParseTradeResource(giveResource), ParseTradeResource(receiveResource)));
     }
 
+    public async Task CreateTradeOffer(
+        string roomCode,
+        string targetPlayerId,
+        IReadOnlyDictionary<string, int> offeredResources,
+        IReadOnlyDictionary<string, int> requestedResources)
+    {
+        await RunGameAction(roomCode, (_, player) =>
+            _gameService.CreateTradeOffer(
+                roomCode,
+                player.PlayerId,
+                targetPlayerId,
+                ParseResourceMap(offeredResources),
+                ParseResourceMap(requestedResources)));
+    }
+
+    public async Task AcceptTradeOffer(string roomCode, string tradeOfferId)
+    {
+        await RunGameAction(roomCode, (_, player) =>
+            _gameService.AcceptTradeOffer(roomCode, player.PlayerId, tradeOfferId));
+    }
+
+    public async Task RejectTradeOffer(string roomCode, string tradeOfferId)
+    {
+        await RunGameAction(roomCode, (_, player) =>
+            _gameService.RejectTradeOffer(roomCode, player.PlayerId, tradeOfferId));
+    }
+
+    public async Task CancelTradeOffer(string roomCode, string tradeOfferId)
+    {
+        await RunGameAction(roomCode, (_, player) =>
+            _gameService.CancelTradeOffer(roomCode, player.PlayerId, tradeOfferId));
+    }
+
     public async Task EndTurn(string roomCode)
     {
         await RunGameAction(roomCode, (game, player) => _gameService.EndTurn(roomCode, player.PlayerId));
@@ -108,6 +350,24 @@ public sealed class GameLobbyHub : Hub
     {
         await RunGameAction(roomCode, (_, player) =>
             _gameService.PlaceSetupTrail(roomCode, player.PlayerId, edgeId));
+    }
+
+    public async Task BuildTrail(string roomCode, string edgeId)
+    {
+        await RunGameAction(roomCode, (_, player) =>
+            _gameService.BuildTrail(roomCode, player.PlayerId, edgeId));
+    }
+
+    public async Task BuildCamp(string roomCode, string vertexId)
+    {
+        await RunGameAction(roomCode, (_, player) =>
+            _gameService.BuildCamp(roomCode, player.PlayerId, vertexId));
+    }
+
+    public async Task BuildStronghold(string roomCode, string vertexId)
+    {
+        await RunGameAction(roomCode, (_, player) =>
+            _gameService.BuildStronghold(roomCode, player.PlayerId, vertexId));
     }
 
     public async Task RollDice(string roomCode)
@@ -248,6 +508,12 @@ public sealed class GameLobbyHub : Hub
             _debugGameService.TriggerWinCheck(room, actor, playerId));
     }
 
+    public async Task DebugRecalculateLongestTrail(string roomCode)
+    {
+        await RunDebugAction(roomCode, (room, actor) =>
+            _debugGameService.RecalculateLongestTrail(room, actor));
+    }
+
     public async Task DebugGiveDevelopmentCard(string roomCode, string playerId, string cardType)
     {
         await RunDebugAction(roomCode, (room, actor) =>
@@ -285,9 +551,28 @@ public sealed class GameLobbyHub : Hub
             _debugGameService.RestartMatch(room, actor));
     }
 
+    public async Task DebugRegenerateBoard(string roomCode, int boardSeed)
+    {
+        await RunDebugAction(roomCode, (room, actor) =>
+            _debugGameService.RegenerateBoard(room, actor, boardSeed));
+    }
+
+    public BoardIntegrityResultDto DebugValidateBoard(string roomCode)
+    {
+        try
+        {
+            var (room, player) = GetRoomPlayerOrThrow(roomCode);
+            return _debugGameService.ValidateBoard(room, player).ToDto();
+        }
+        catch (GameRuleException ex)
+        {
+            throw HubErrorSerializer.ToHubException(ex);
+        }
+    }
+
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        var result = _lobbyService.Disconnect(Context.ConnectionId);
+        var result = _roomLifecycleService.Disconnect(Context.ConnectionId);
 
         if (!string.IsNullOrWhiteSpace(result.RoomCode))
         {
@@ -296,6 +581,11 @@ public sealed class GameLobbyHub : Hub
             if (result.Room is not null)
             {
                 await Clients.Group(result.RoomCode).SendAsync("RoomUpdated", result.Room.ToDto());
+                var game = _gameService.GetGame(result.RoomCode);
+                if (game is not null)
+                {
+                    await BroadcastGameState(result.Room, game, "GameUpdated");
+                }
             }
             else if (result.RoomRemoved)
             {
@@ -315,7 +605,11 @@ public sealed class GameLobbyHub : Hub
                 ?? throw new GameRuleException("No active match exists for this room.");
 
             var updatedGame = action(currentGame, player);
-            await BroadcastGameState(room, updatedGame, "GameUpdated");
+            updatedGame = _roomLifecycleService.AfterGameMutation(room, updatedGame) ?? updatedGame;
+            GameService.MarkStateChanged(updatedGame);
+            var updatedRoom = _lobbyService.GetRoom(roomCode) ?? room;
+            await Clients.Group(updatedRoom.RoomCode).SendAsync("RoomUpdated", updatedRoom.ToDto());
+            await BroadcastGameState(updatedRoom, updatedGame, "GameUpdated");
         }
         catch (GameRuleException ex)
         {
@@ -329,7 +623,11 @@ public sealed class GameLobbyHub : Hub
         {
             var (room, player) = GetRoomPlayerOrThrow(roomCode);
             var updatedGame = action(room, player);
-            await BroadcastGameState(room, updatedGame, "GameUpdated");
+            updatedGame = _roomLifecycleService.AfterGameMutation(room, updatedGame) ?? updatedGame;
+            GameService.MarkStateChanged(updatedGame);
+            var updatedRoom = _lobbyService.GetRoom(roomCode) ?? room;
+            await Clients.Group(updatedRoom.RoomCode).SendAsync("RoomUpdated", updatedRoom.ToDto());
+            await BroadcastGameState(updatedRoom, updatedGame, "GameUpdated");
         }
         catch (GameRuleException ex)
         {
@@ -340,14 +638,16 @@ public sealed class GameLobbyHub : Hub
     private (Room Room, Player Player) GetRoomPlayerOrThrow(string roomCode)
     {
         var room = _lobbyService.GetRoomForConnection(Context.ConnectionId)
-            ?? throw new GameRuleException("You are not connected to a room.");
+            ?? throw new GameRuleException(_lobbyService.IsStaleConnection(Context.ConnectionId)
+                ? "This player session is active in another browser tab or window."
+                : "You are not connected to a room.");
 
         if (!string.Equals(room.RoomCode, roomCode, StringComparison.OrdinalIgnoreCase))
         {
             throw new GameRuleException("You are not connected to that room.");
         }
 
-        var player = room.Players.FirstOrDefault(player => player.ConnectionId == Context.ConnectionId)
+        var player = _lobbyService.GetPlayerForConnection(Context.ConnectionId)
             ?? throw new GameRuleException("You are not in this room.");
 
         return (room, player);
@@ -357,6 +657,12 @@ public sealed class GameLobbyHub : Hub
     {
         foreach (var player in room.Players)
         {
+            if (string.IsNullOrWhiteSpace(player.ConnectionId)
+                || player.ConnectionStatus != PlayerConnectionStatus.Connected)
+            {
+                continue;
+            }
+
             await Clients.Client(player.ConnectionId).SendAsync(eventName, eventName == "GameStarted"
                 ? game.ToGameStartedDto(player.PlayerId)
                 : game.ToDto(player.PlayerId));

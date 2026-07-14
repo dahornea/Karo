@@ -9,6 +9,7 @@ export type PortType = 'Generic3To1' | 'Specific2To1';
 export type BoardStructureType = 'Camp' | 'Stronghold';
 export type BankTradeRateSource = 'DefaultBank' | 'GenericPort' | 'SpecificPort';
 export type HarborType = 'Generic' | ResourceType;
+export type PlayerTradeOfferStatus = 'Pending' | 'Accepted' | 'Rejected' | 'Cancelled' | 'Expired';
 
 export type DevelopmentCardType =
   | 'Knight'
@@ -30,6 +31,7 @@ export interface HexTile {
   resourceType: TileResourceType;
   numberToken: number | null;
   isBlocked: boolean;
+  adjacentTileIds: string[];
 }
 
 export interface BoardVertex {
@@ -38,6 +40,8 @@ export interface BoardVertex {
   y: number;
   isCoastal: boolean;
   adjacentTileIds: string[];
+  adjacentVertexIds: string[];
+  adjacentEdgeIds: string[];
   ownerPlayerId: string | null;
   structureType: BoardStructureType | null;
 }
@@ -46,6 +50,7 @@ export interface BoardEdge {
   edgeId: string;
   startVertexId: string;
   endVertexId: string;
+  adjacentTileIds: string[];
   ownerPlayerId: string | null;
 }
 
@@ -75,11 +80,19 @@ export interface HarborSlot {
 }
 
 export interface BoardState {
+  boardSeed: number;
   tiles: HexTile[];
   vertices: BoardVertex[];
   edges: BoardEdge[];
   harborSlots: HarborSlot[];
   ports: Port[];
+}
+
+export interface BoardIntegrityResult {
+  boardSeed: number;
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
 }
 
 export interface PlayerDevelopmentCard {
@@ -108,14 +121,25 @@ export interface PlayerGameState {
   playerId: string;
   playerName: string;
   isHost: boolean;
+  connectionStatus: import('./lobby').PlayerConnectionStatus;
+  hasForfeited: boolean;
+  playerColor: string;
   supplyCount: number;
   supplies: Record<ResourceType, number>;
   campsBuilt: number;
   strongholdsBuilt: number;
   trailsBuilt: number;
+  totalTrails: number;
+  remainingTrails: number;
+  totalCamps: number;
+  remainingCamps: number;
+  totalStrongholds: number;
+  remainingStrongholds: number;
   visibleVictoryPoints: number;
   totalVictoryPoints: number;
   hasLargestArmy: boolean;
+  hasLongestTrail: boolean;
+  longestTrailLength: number;
   playedKnightCount: number;
   hasPlayedDevelopmentCardThisTurn: boolean;
   developmentCardCount: number;
@@ -132,6 +156,24 @@ export interface BankTradeRate {
   portId: string | null;
 }
 
+export interface PlayerTradeOffer {
+  tradeOfferId: string;
+  roomCode: string;
+  turnNumber: number;
+  proposerPlayerId: string;
+  proposerName: string;
+  targetPlayerId: string;
+  targetName: string;
+  offeredResources: Partial<Record<ResourceType, number>>;
+  requestedResources: Partial<Record<ResourceType, number>>;
+  status: PlayerTradeOfferStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+  canAccept: boolean;
+  canReject: boolean;
+  canCancel: boolean;
+}
+
 export interface GameLogEntry {
   sequence: number;
   createdAt: string;
@@ -142,6 +184,9 @@ export interface GameLogEntry {
 export interface GameState {
   roomCode: string;
   status: GameStatus;
+  matchId: string;
+  gameStateVersion: number;
+  pause: GamePauseState | null;
   phase: GamePhase;
   board: BoardState;
   players: PlayerGameState[];
@@ -166,10 +211,21 @@ export interface GameState {
   largestArmyPlayerId: string | null;
   largestArmyKnightCount: number;
   largestArmyAwardedAtTurn: number | null;
+  longestTrailPlayerId: string | null;
+  longestTrailLength: number;
   winnerPlayerId: string | null;
   activeDevelopmentCardEffect: ActiveDevelopmentCardEffect | null;
+  tradeOffers: PlayerTradeOffer[];
   log: GameLogEntry[];
   startedAt: string;
+}
+
+export interface GamePauseState {
+  isPaused: boolean;
+  reason: string;
+  disconnectedPlayerId: string;
+  pausedAt: string;
+  reconnectDeadline: string;
 }
 
 export interface DevelopmentCardActionPayload {

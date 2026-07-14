@@ -61,9 +61,17 @@ export function App() {
           pendingAction={lobby.pendingAction}
           onBuyDevelopmentCard={lobby.buyDevelopmentCard}
           onTradeWithBank={lobby.tradeWithBank}
+          onCreateTradeOffer={lobby.createTradeOffer}
+          onAcceptTradeOffer={lobby.acceptTradeOffer}
+          onRejectTradeOffer={lobby.rejectTradeOffer}
+          onCancelTradeOffer={lobby.cancelTradeOffer}
           onEndTurn={lobby.endTurn}
           onPlaceSetupCamp={lobby.placeSetupCamp}
           onPlaceSetupTrail={lobby.placeSetupTrail}
+          onPlaceFreeTrail={lobby.placeFreeTrail}
+          onBuildTrail={lobby.buildTrail}
+          onBuildCamp={lobby.buildCamp}
+          onBuildStronghold={lobby.buildStronghold}
           onRollDice={lobby.rollDice}
           onDiscardForWarden={lobby.discardForWarden}
           onMoveWarden={lobby.moveWarden}
@@ -73,6 +81,10 @@ export function App() {
           onPlayKnight={lobby.playKnight}
           onStartRoadBuilding={lobby.startRoadBuilding}
           onCancelActiveDevelopmentCard={lobby.cancelActiveDevelopmentCard}
+          onForfeitMatch={lobby.forfeitMatch}
+          onReturnRoomToLobby={lobby.returnRoomToLobby}
+          onContinueWithoutPlayer={lobby.continueWithoutPlayer}
+          onEndPausedMatch={lobby.endPausedMatch}
           isDebugEnabled={debug.isDebugEnabled}
           onDebugModeChange={debug.setIsDebugEnabled}
           onDebugAddResource={lobby.debugAddResource}
@@ -87,11 +99,14 @@ export function App() {
           onDebugForceSetupStep={lobby.debugForceSetupStep}
           onDebugSetVictoryPoints={lobby.debugSetVictoryPoints}
           onDebugTriggerWinCheck={lobby.debugTriggerWinCheck}
+          onDebugRecalculateLongestTrail={lobby.debugRecalculateLongestTrail}
           onDebugGiveDevelopmentCard={lobby.debugGiveDevelopmentCard}
           onDebugClearDevelopmentCards={lobby.debugClearDevelopmentCards}
           onDebugResetDevelopmentCardPlayLimit={lobby.debugResetDevelopmentCardPlayLimit}
           onDebugGetDevelopmentDeckComposition={lobby.debugGetDevelopmentDeckComposition}
           onDebugRestartMatch={lobby.debugRestartMatch}
+          onDebugRegenerateBoard={lobby.debugRegenerateBoard}
+          onDebugValidateBoard={lobby.debugValidateBoard}
         />
       ) : (
         <LobbyPage
@@ -99,6 +114,9 @@ export function App() {
           room={lobby.room}
           pendingAction={lobby.pendingAction}
           onStartGame={lobby.startGame}
+          onSetReady={lobby.setReady}
+          onRecoverSession={lobby.recoverCurrentSession}
+          onLeaveRoom={lobby.leaveRoom}
         />
       )}
     </main>

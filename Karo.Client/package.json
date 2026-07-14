@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4173"
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "render:assets": "node scripts/renderGameAssets.mjs",
+    "test:ui": "node scripts/gameAssetTests.mjs && node scripts/actionAvailabilityTests.mjs && node scripts/commandDockTests.mjs && node scripts/directBuildTests.mjs && node scripts/sidePanelTests.mjs"
   },
   "dependencies": {
     "@microsoft/signalr": "^8.0.7",
@@ -23,6 +25,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "vite": "^5.4.11"

@@ -6,7 +6,7 @@ interface NumberTokenProps {
 
 export function NumberToken({ x, y, value }: NumberTokenProps) {
   return (
-    <g className="number-token" transform={`translate(${x} ${y + 14})`}>
+    <g className="number-token" data-hot={value === 6 || value === 8} transform={`translate(${x} ${y + 14})`}>
       <circle r="17" />
       <text y="-2">{value}</text>
       <g className="probability-dots" transform="translate(0 8)">

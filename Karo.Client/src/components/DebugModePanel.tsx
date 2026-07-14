@@ -1,10 +1,11 @@
-import { Bug, RotateCcw, X } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { BoardRendererMode } from '../types/boardRenderer';
 import type { BoardDebugOptions } from '../types/debug';
-import type { DevelopmentCardType, DevelopmentDeckComposition, GameState, ResourceType, SetupStep } from '../types/game';
+import type { BoardIntegrityResult, DevelopmentCardType, DevelopmentDeckComposition, GameState, ResourceType, SetupStep } from '../types/game';
 import { resources } from '../types/game';
+import { ActionIcon, ResourceIcon } from './GameAsset';
 
 interface DebugModePanelProps {
   game: GameState;
@@ -28,11 +29,14 @@ interface DebugModePanelProps {
   onDebugForceSetupStep: (roomCode: string, targetPlayerId: string, setupStep: SetupStep) => Promise<void>;
   onDebugSetVictoryPoints: (roomCode: string, targetPlayerId: string, points: number) => Promise<void>;
   onDebugTriggerWinCheck: (roomCode: string, targetPlayerId: string) => Promise<void>;
+  onDebugRecalculateLongestTrail: (roomCode: string) => Promise<void>;
   onDebugGiveDevelopmentCard: (roomCode: string, targetPlayerId: string, cardType: DevelopmentCardType | 'Random') => Promise<void>;
   onDebugClearDevelopmentCards: (roomCode: string, targetPlayerId: string) => Promise<void>;
   onDebugResetDevelopmentCardPlayLimit: (roomCode: string, targetPlayerId: string) => Promise<void>;
   onDebugGetDevelopmentDeckComposition: (roomCode: string) => Promise<DevelopmentDeckComposition>;
   onDebugRestartMatch: (roomCode: string) => Promise<void>;
+  onDebugRegenerateBoard: (roomCode: string, boardSeed: number) => Promise<void>;
+  onDebugValidateBoard: (roomCode: string) => Promise<BoardIntegrityResult>;
 }
 
 type DebugSectionId = 'state' | 'resources' | 'turn' | 'board' | 'harbors' | 'cards' | 'actions';
@@ -79,11 +83,14 @@ export function DebugModePanel({
   onDebugForceSetupStep,
   onDebugSetVictoryPoints,
   onDebugTriggerWinCheck,
+  onDebugRecalculateLongestTrail,
   onDebugGiveDevelopmentCard,
   onDebugClearDevelopmentCards,
   onDebugResetDevelopmentCardPlayLimit,
   onDebugGetDevelopmentDeckComposition,
-  onDebugRestartMatch
+  onDebugRestartMatch,
+  onDebugRegenerateBoard,
+  onDebugValidateBoard
 }: DebugModePanelProps) {
   const me = game.players.find((player) => player.playerId === playerId) ?? null;
   const currentTurnPlayer = game.players.find((player) => player.playerId === game.currentPlayerId) ?? null;
@@ -93,6 +100,8 @@ export function DebugModePanel({
   const [targetPlayerId, setTargetPlayerId] = useState(playerId ?? game.players[0]?.playerId ?? '');
   const [victoryPoints, setVictoryPoints] = useState(10);
   const [deckComposition, setDeckComposition] = useState<DevelopmentDeckComposition | null>(null);
+  const [boardSeed, setBoardSeed] = useState(String(game.board.boardSeed));
+  const [boardIntegrity, setBoardIntegrity] = useState<BoardIntegrityResult | null>(null);
   const [debugWardenTileId, setDebugWardenTileId] = useState(game.wardenTileId ?? game.robberTileId);
   const targetPlayer = game.players.find((player) => player.playerId === targetPlayerId) ?? me ?? game.players[0] ?? null;
   const targetId = targetPlayer?.playerId ?? '';
@@ -120,15 +129,37 @@ export function DebugModePanel({
     });
   };
 
+  useEffect(() => {
+    setBoardSeed(String(game.board.boardSeed));
+    setBoardIntegrity(null);
+  }, [game.board.boardSeed]);
+
   const loadDeckComposition = async () => {
     const composition = await onDebugGetDevelopmentDeckComposition(game.roomCode);
     setDeckComposition(composition);
   };
 
+  const regenerateBoard = async () => {
+    const seed = Number(boardSeed);
+    if (!Number.isSafeInteger(seed)) {
+      return;
+    }
+
+    await onDebugRegenerateBoard(game.roomCode, seed);
+  };
+
+  const validateBoard = async () => {
+    setBoardIntegrity(await onDebugValidateBoard(game.roomCode));
+  };
+
+  const copyBoardSeed = () => {
+    void navigator.clipboard?.writeText(String(game.board.boardSeed));
+  };
+
   return (
     <>
       <button className="debug-panel-toggle" type="button" onClick={() => setIsOpen(true)}>
-        <Bug size={15} />
+        <ActionIcon type="Debug" />
         Debug
       </button>
 
@@ -137,7 +168,7 @@ export function DebugModePanel({
           <header className="debug-drawer-header">
             <div>
               <span className="debug-badge">
-                <Bug size={14} />
+                <ActionIcon type="Debug" />
                 Debug Mode
               </span>
               <p>{pendingAction ?? 'Ready'} - local development tools</p>
@@ -202,6 +233,16 @@ export function DebugModePanel({
                   <b>{game.wardenVictimOptions.map(shortId).join(', ') || 'None'}</b>
                   <span>Largest Army</span>
                   <b>{game.largestArmyPlayerId ? `${shortId(game.largestArmyPlayerId)}:${game.largestArmyKnightCount}` : 'None'}</b>
+                  <span>Longest Trail</span>
+                  <b>{game.longestTrailPlayerId ? `${shortId(game.longestTrailPlayerId)}:${game.longestTrailLength}` : 'None'}</b>
+                  <span>Trail Lengths</span>
+                  <b>{game.players.map((player) => `${shortId(player.playerId)}:${player.longestTrailLength}`).join(', ')}</b>
+                  <span>Pieces</span>
+                  <b>
+                    {targetPlayer
+                      ? `T ${targetPlayer.remainingTrails}/${targetPlayer.totalTrails} | C ${targetPlayer.remainingCamps}/${targetPlayer.totalCamps} | S ${targetPlayer.remainingStrongholds}/${targetPlayer.totalStrongholds}`
+                      : 'None'}
+                  </b>
                   <span>Pending</span>
                   <b>{pendingAction ?? 'None'}</b>
                 </div>
@@ -212,13 +253,13 @@ export function DebugModePanel({
               <DebugSection title="Resources" meta={`${targetPlayer?.supplyCount ?? 0} total`}>
                 <div className="debug-resource-grid">
                   {resources.map((resource) => (
-                    <div className="debug-resource-row" key={resource}>
-                      <span>{resource}</span>
+                    <div aria-label={`${resource}: ${targetPlayer?.supplies[resource] ?? 0}`} className="debug-resource-row" key={resource} title={resource}>
+                      <span aria-hidden="true"><ResourceIcon decorative size="md" type={resource} /><span className="sr-only">{resource}</span></span>
                       <b>{targetPlayer?.supplies[resource] ?? 0}</b>
-                      <button type="button" disabled={isBusy} onClick={() => void onDebugAddResource(game.roomCode, targetId, resource, 1)}>
+                      <button aria-label={`Add 1 ${resource}`} type="button" disabled={isBusy} onClick={() => void onDebugAddResource(game.roomCode, targetId, resource, 1)}>
                         +1
                       </button>
-                      <button type="button" disabled={isBusy} onClick={() => void onDebugAddResource(game.roomCode, targetId, resource, 5)}>
+                      <button aria-label={`Add 5 ${resource}`} type="button" disabled={isBusy} onClick={() => void onDebugAddResource(game.roomCode, targetId, resource, 5)}>
                         +5
                       </button>
                     </div>
@@ -278,7 +319,66 @@ export function DebugModePanel({
             ) : null}
 
             {activeSection === 'board' ? (
-              <DebugSection title="Board Overlays" meta={`${game.board.tiles.length} tiles`}>
+              <DebugSection title="Board Inspector" meta={`Seed ${game.board.boardSeed}`}>
+                <div className="debug-info-grid">
+                  <span>Land</span>
+                  <b>{game.board.tiles.length} tiles | {game.board.vertices.length} nodes | {game.board.edges.length} edges</b>
+                  <span>Warden</span>
+                  <b>{game.wardenTileId ?? game.robberTileId}</b>
+                  <span>Harbors</span>
+                  <b>{game.board.harborSlots.length} slots</b>
+                  <span>Integrity</span>
+                  <b>{boardIntegrity ? (boardIntegrity.isValid ? 'Valid' : `${boardIntegrity.errors.length} errors`) : 'Not checked'}</b>
+                </div>
+                <div className="debug-inline-controls">
+                  <input
+                    aria-label="Board seed"
+                    inputMode="numeric"
+                    value={boardSeed}
+                    onChange={(event) => setBoardSeed(event.target.value)}
+                  />
+                  <button type="button" disabled={!!pendingAction} onClick={() => void copyBoardSeed()}>
+                    Copy Seed
+                  </button>
+                  <button type="button" disabled={!!pendingAction || !Number.isSafeInteger(Number(boardSeed))} onClick={() => void regenerateBoard()}>
+                    Regenerate
+                  </button>
+                  <button type="button" disabled={!!pendingAction} onClick={() => void validateBoard()}>
+                    Validate
+                  </button>
+                </div>
+                {boardIntegrity ? (
+                  <div className="debug-small-text" role="status">
+                    {boardIntegrity.isValid
+                      ? `Seed ${boardIntegrity.boardSeed} passed the board integrity validator.`
+                      : boardIntegrity.errors.join(' | ')}
+                    {boardIntegrity.warnings.length > 0 ? ` Warnings: ${boardIntegrity.warnings.join(' | ')}` : ''}
+                  </div>
+                ) : null}
+                <details className="debug-inspector-details">
+                  <summary>Topology data</summary>
+                  <div className="debug-inspector-list">
+                    {game.board.tiles.map((tile) => (
+                      <span key={tile.tileId}>
+                        {tile.tileId} ({tile.q},{tile.r}) {tile.resourceType} {tile.numberToken ?? '-'} | tiles: {tile.adjacentTileIds.join(',')}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="debug-inspector-list">
+                    {game.board.vertices.map((vertex) => (
+                      <span key={vertex.vertexId}>
+                        {vertex.vertexId} {vertex.isCoastal ? 'coast' : 'inland'} | tiles: {vertex.adjacentTileIds.join(',')} | edges: {vertex.adjacentEdgeIds.join(',')}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="debug-inspector-list">
+                    {game.board.harborSlots.map((slot) => (
+                      <span key={slot.harborSlotId}>
+                        {slot.harborSlotId} {slot.harborType} {slot.tradeRate}:1 | nodes: {slot.adjacentVertexIds.join(',')}
+                      </span>
+                    ))}
+                  </div>
+                </details>
                 <div className="debug-renderer-row" aria-label="Board renderer mode">
                   <span>Renderer</span>
                   <button type="button" data-active={boardRendererMode === '2d'} onClick={() => onBoardRendererModeChange('2d')}>
@@ -344,7 +444,7 @@ export function DebugModePanel({
                 <div className="debug-dice-grid">
                   {developmentCardTypes.map((type) => (
                     <button type="button" disabled={isBusy} key={type} onClick={() => void onDebugGiveDevelopmentCard(game.roomCode, targetId, type)}>
-                      {formatCardType(type)}
+                      Draw {formatCardType(type)}
                     </button>
                   ))}
                 </div>
@@ -386,6 +486,9 @@ export function DebugModePanel({
                 <div className="debug-button-row">
                   <button type="button" disabled={isBusy} onClick={() => void onDebugTriggerWinCheck(game.roomCode, targetId)}>
                     Trigger Win Check
+                  </button>
+                  <button type="button" disabled={!!pendingAction} onClick={() => void onDebugRecalculateLongestTrail(game.roomCode)}>
+                    Recalc Longest Trail
                   </button>
                   <button type="button" disabled={!!pendingAction} onClick={() => void onDebugRestartMatch(game.roomCode)}>
                     Restart Match

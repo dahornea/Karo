@@ -18,8 +18,8 @@ const fallbackError: FriendlyGameError = {
 const knownMessages: Array<{ code: string; message: string; title: string }> = [
   {
     code: 'DevelopmentCardAlreadyPlayedThisTurn',
-    message: 'You already played a Development Card this turn.',
-    title: 'Card already played'
+    message: 'You can play only one Development Card per turn.',
+    title: 'Card limit used'
   },
   {
     code: 'DevelopmentCardBoughtThisTurn',
@@ -28,12 +28,7 @@ const knownMessages: Array<{ code: string; message: string; title: string }> = [
   },
   {
     code: 'DevelopmentCardBuyRequiresRoll',
-    message: 'You must roll before buying a Development Card.',
-    title: 'Roll required'
-  },
-  {
-    code: 'DevelopmentCardPlayRequiresRoll',
-    message: 'You must roll before playing a Development Card.',
+    message: 'Roll the dice before buying a Development Card.',
     title: 'Roll required'
   },
   {
@@ -45,6 +40,11 @@ const knownMessages: Array<{ code: string; message: string; title: string }> = [
     code: 'NotYourTurn',
     message: 'It is not your turn.',
     title: 'Not your turn'
+  },
+  {
+    code: 'MatchPausedForReconnect',
+    message: 'The match is paused while a player reconnects.',
+    title: 'Match paused'
   },
   {
     code: 'WardenActionRequired',
@@ -62,19 +62,64 @@ const knownMessages: Array<{ code: string; message: string; title: string }> = [
     title: 'Not enough supplies'
   },
   {
+    code: 'PlayerTradeNotEnoughOfferedSupplies',
+    message: 'Not enough Supplies for this offer.',
+    title: 'Not enough supplies'
+  },
+  {
+    code: 'PlayerTradeTargetSuppliesChanged',
+    message: 'The other player no longer has the requested Supplies.',
+    title: 'Trade changed'
+  },
+  {
+    code: 'PlayerTradeProposerSuppliesChanged',
+    message: 'The proposing player no longer has the offered Supplies.',
+    title: 'Trade changed'
+  },
+  {
+    code: 'PlayerTradeUnavailableOffer',
+    message: 'This trade offer is no longer available.',
+    title: 'Offer unavailable'
+  },
+  {
     code: 'InvalidPlacement',
     message: 'Invalid placement.',
     title: 'Invalid placement'
   },
   {
     code: 'DevelopmentCardBuyBlockedDuringSetup',
-    message: 'You cannot buy Development Cards during setup.',
+    message: 'Development Cards cannot be bought during setup.',
     title: 'Setup phase'
   },
   {
     code: 'DevelopmentCardPlayBlockedDuringSetup',
-    message: 'You cannot play Development Cards during setup.',
+    message: 'Development Cards cannot be used during setup.',
     title: 'Setup phase'
+  },
+  {
+    code: 'DevelopmentCardActionPending',
+    message: 'Resolve the current Development Card action first.',
+    title: 'Card action pending'
+  },
+  {
+    code: 'NoTrailPiecesRemaining',
+    message: 'You have no Trail pieces remaining.',
+    title: 'No Trails left'
+  },
+  {
+    code: 'NoLegalTrailPlacement',
+    message: 'No legal Trail placement is available.',
+    title: 'No Trail placement'
+  },
+  {
+    code: 'NoCampPiecesRemaining',
+    message: 'You have no Camp pieces remaining.',
+    title: 'No Camps left'
+  },
+  {
+    code: 'NoStrongholdPiecesRemaining',
+    message: 'You have no Stronghold pieces remaining.',
+    title: 'No Strongholds left'
   }
 ];
 
@@ -84,14 +129,37 @@ const codeTitles: Record<string, string> = {
   TrailEdgeOccupied: 'Trail occupied',
   SetupTrailMustConnect: 'Invalid trail',
   DevelopmentDeckEmpty: 'Deck empty',
+  DevelopmentCardActionPending: 'Card action pending',
+  NoTrailPiecesRemaining: 'No Trails left',
+  NoLegalTrailPlacement: 'No Trail placement',
+  NoCampPiecesRemaining: 'No Camps left',
+  NoStrongholdPiecesRemaining: 'No Strongholds left',
   TradeSameResource: 'Invalid trade',
   TradeBlockedDuringSetup: 'Setup phase',
+  PlayerTradeOnlyCurrentCanOffer: 'Current player only',
+  PlayerTradeSelfBlocked: 'Invalid trade',
+  PlayerTradeRequiresBothSides: 'Invalid trade',
+  PlayerTradeUnavailable: 'Trading unavailable',
+  PlayerTradeOnlyTargetCanAccept: 'Wrong player',
+  PlayerTradeOnlyTargetCanReject: 'Wrong player',
+  PlayerTradeOnlyProposerCanCancel: 'Wrong player',
   WardenDiscardAmountMismatch: 'Discard amount',
   WardenMustMove: 'Move the Warden',
   InvalidWardenTile: 'Invalid Warden move',
   InvalidWardenVictim: 'Invalid victim',
   PlayerNameRequired: 'Name required',
   InvalidRoomCode: 'Invalid room',
+  RoomNotFound: 'Room unavailable',
+  SessionNotConnected: 'Session unavailable',
+  SessionExpired: 'Session expired',
+  SessionReplaced: 'Session replaced',
+  PlayersNotReady: 'Players not ready',
+  NotEnoughPlayers: 'More players needed',
+  NotRoomHost: 'Host only',
+  PlayerNotTimedOut: 'Player still reconnecting',
+  ForfeitRequired: 'Forfeit required',
+  MatchPausedForReconnect: 'Match paused',
+  MatchNotFinished: 'Match in progress',
   RoomAlreadyInGame: 'Match already started',
   RoomFull: 'Room full',
   OnlyHostCanStart: 'Host only'

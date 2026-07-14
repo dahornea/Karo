@@ -5,24 +5,44 @@ namespace Karo.Api.DTOs;
 
 public sealed record JoinRoomResultDto(
     string PlayerId,
-    RoomDto Room);
+    RoomDto Room,
+    PlayerSessionDto Session);
+
+public sealed record PlayerSessionDto(
+    string RoomCode,
+    string PlayerId,
+    string ReconnectToken);
+
+public sealed record ResumeRoomSessionResultDto(
+    RoomDto Room,
+    GameStateDto? Game,
+    PlayerSessionDto Session);
 
 public sealed record RoomDto(
     string RoomCode,
-    string HostConnectionId,
+    string HostPlayerId,
     string Status,
+    long RoomStateVersion,
     IReadOnlyList<PlayerDto> Players);
 
 public sealed record PlayerDto(
     string PlayerId,
     string PlayerName,
-    string ConnectionId,
+    string ConnectionStatus,
     DateTimeOffset JoinedAt,
-    bool IsHost);
+    DateTimeOffset LastSeenAt,
+    DateTimeOffset? DisconnectedAt,
+    bool IsHost,
+    bool IsReady,
+    bool HasForfeited,
+    string PlayerColor);
 
 public sealed record GameStartedDto(
     string RoomCode,
     string Status,
+    string MatchId,
+    long GameStateVersion,
+    GamePauseDto? Pause,
     string Phase,
     BoardStateDto Board,
     IReadOnlyList<PlayerGameStateDto> Players,
@@ -47,14 +67,20 @@ public sealed record GameStartedDto(
     string? LargestArmyPlayerId,
     int LargestArmyKnightCount,
     int? LargestArmyAwardedAtTurn,
+    string? LongestTrailPlayerId,
+    int LongestTrailLength,
     string? WinnerPlayerId,
     ActiveDevelopmentCardEffectDto? ActiveDevelopmentCardEffect,
+    IReadOnlyList<PlayerTradeOfferDto> TradeOffers,
     IReadOnlyList<GameLogEntryDto> Log,
     DateTimeOffset StartedAt);
 
 public sealed record GameStateDto(
     string RoomCode,
     string Status,
+    string MatchId,
+    long GameStateVersion,
+    GamePauseDto? Pause,
     string Phase,
     BoardStateDto Board,
     IReadOnlyList<PlayerGameStateDto> Players,
@@ -79,12 +105,16 @@ public sealed record GameStateDto(
     string? LargestArmyPlayerId,
     int LargestArmyKnightCount,
     int? LargestArmyAwardedAtTurn,
+    string? LongestTrailPlayerId,
+    int LongestTrailLength,
     string? WinnerPlayerId,
     ActiveDevelopmentCardEffectDto? ActiveDevelopmentCardEffect,
+    IReadOnlyList<PlayerTradeOfferDto> TradeOffers,
     IReadOnlyList<GameLogEntryDto> Log,
     DateTimeOffset StartedAt);
 
 public sealed record BoardStateDto(
+    int BoardSeed,
     IReadOnlyList<HexTileDto> Tiles,
     IReadOnlyList<BoardVertexDto> Vertices,
     IReadOnlyList<BoardEdgeDto> Edges,
@@ -97,7 +127,8 @@ public sealed record HexTileDto(
     int R,
     string ResourceType,
     int? NumberToken,
-    bool IsBlocked);
+    bool IsBlocked,
+    IReadOnlyList<string> AdjacentTileIds);
 
 public sealed record BoardVertexDto(
     string VertexId,
@@ -105,6 +136,8 @@ public sealed record BoardVertexDto(
     double Y,
     bool IsCoastal,
     IReadOnlyList<string> AdjacentTileIds,
+    IReadOnlyList<string> AdjacentVertexIds,
+    IReadOnlyList<string> AdjacentEdgeIds,
     string? OwnerPlayerId,
     string? StructureType);
 
@@ -112,6 +145,7 @@ public sealed record BoardEdgeDto(
     string EdgeId,
     string StartVertexId,
     string EndVertexId,
+    IReadOnlyList<string> AdjacentTileIds,
     string? OwnerPlayerId);
 
 public sealed record HarborSlotDto(
@@ -137,18 +171,35 @@ public sealed record PortDto(
     IReadOnlyList<string> AdjacentVertexIds,
     string DisplayLabel);
 
+public sealed record BoardIntegrityResultDto(
+    int BoardSeed,
+    bool IsValid,
+    IReadOnlyList<string> Errors,
+    IReadOnlyList<string> Warnings);
+
 public sealed record PlayerGameStateDto(
     string PlayerId,
     string PlayerName,
     bool IsHost,
+    string ConnectionStatus,
+    bool HasForfeited,
+    string PlayerColor,
     int SupplyCount,
     IReadOnlyDictionary<string, int> Supplies,
     int CampsBuilt,
     int StrongholdsBuilt,
     int TrailsBuilt,
+    int TotalTrails,
+    int RemainingTrails,
+    int TotalCamps,
+    int RemainingCamps,
+    int TotalStrongholds,
+    int RemainingStrongholds,
     int VisibleVictoryPoints,
     int TotalVictoryPoints,
     bool HasLargestArmy,
+    bool HasLongestTrail,
+    int LongestTrailLength,
     int PlayedKnightCount,
     bool HasPlayedDevelopmentCardThisTurn,
     int DevelopmentCardCount,
@@ -162,6 +213,23 @@ public sealed record BankTradeRateDto(
     int Rate,
     string Source,
     string? PortId);
+
+public sealed record PlayerTradeOfferDto(
+    string TradeOfferId,
+    string RoomCode,
+    int TurnNumber,
+    string ProposerPlayerId,
+    string ProposerName,
+    string TargetPlayerId,
+    string TargetName,
+    IReadOnlyDictionary<string, int> OfferedResources,
+    IReadOnlyDictionary<string, int> RequestedResources,
+    string Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ResolvedAt,
+    bool CanAccept,
+    bool CanReject,
+    bool CanCancel);
 
 public sealed record PlayerDevelopmentCardDto(
     string CardId,
@@ -186,14 +254,31 @@ public sealed record GameLogEntryDto(
     string Message,
     string? PlayerId);
 
+public sealed record GamePauseDto(
+    bool IsPaused,
+    string Reason,
+    string DisconnectedPlayerId,
+    DateTimeOffset PausedAt,
+    DateTimeOffset ReconnectDeadline);
+
 public static class LobbyDtoMapper
 {
+    public static BoardIntegrityResultDto ToDto(this BoardValidationResult result)
+    {
+        return new BoardIntegrityResultDto(
+            result.BoardSeed,
+            result.IsValid,
+            result.Errors,
+            result.Warnings);
+    }
+
     public static RoomDto ToDto(this Room room)
     {
         return new RoomDto(
             room.RoomCode,
-            room.HostConnectionId,
+            room.HostPlayerId,
             room.Status.ToString(),
+            room.RoomStateVersion,
             room.Players
                 .OrderBy(player => player.JoinedAt)
                 .Select(player => player.ToDto())
@@ -205,6 +290,9 @@ public static class LobbyDtoMapper
         return new GameStartedDto(
             game.RoomCode,
             game.Status.ToString(),
+            game.MatchId,
+            game.GameStateVersion,
+            game.Pause?.ToDto(),
             game.Phase.ToString(),
             game.Board.ToDto(),
             game.Players.Select(player => player.ToDto(game, viewerPlayerId)).ToList(),
@@ -229,8 +317,11 @@ public static class LobbyDtoMapper
             game.LargestArmyPlayerId,
             game.LargestArmyKnightCount,
             game.LargestArmyAwardedAtTurn,
+            game.LongestTrailPlayerId,
+            game.LongestTrailLength,
             game.WinnerPlayerId,
             game.CurrentPlayer.ActiveDevelopmentCardEffect?.ToDto(),
+            game.TradeOffers.Select(offer => offer.ToDto(game, viewerPlayerId)).ToList(),
             game.Log.Select(entry => entry.ToDto()).ToList(),
             game.StartedAt);
     }
@@ -240,6 +331,9 @@ public static class LobbyDtoMapper
         return new GameStateDto(
             game.RoomCode,
             game.Status.ToString(),
+            game.MatchId,
+            game.GameStateVersion,
+            game.Pause?.ToDto(),
             game.Phase.ToString(),
             game.Board.ToDto(),
             game.Players.Select(player => player.ToDto(game, viewerPlayerId)).ToList(),
@@ -264,8 +358,11 @@ public static class LobbyDtoMapper
             game.LargestArmyPlayerId,
             game.LargestArmyKnightCount,
             game.LargestArmyAwardedAtTurn,
+            game.LongestTrailPlayerId,
+            game.LongestTrailLength,
             game.WinnerPlayerId,
             game.CurrentPlayer.ActiveDevelopmentCardEffect?.ToDto(),
+            game.TradeOffers.Select(offer => offer.ToDto(game, viewerPlayerId)).ToList(),
             game.Log.Select(entry => entry.ToDto()).ToList(),
             game.StartedAt);
     }
@@ -275,14 +372,20 @@ public static class LobbyDtoMapper
         return new PlayerDto(
             player.PlayerId,
             player.PlayerName,
-            player.ConnectionId,
+            player.ConnectionStatus.ToString(),
             player.JoinedAt,
-            player.IsHost);
+            player.LastSeenAt,
+            player.DisconnectedAt,
+            player.IsHost,
+            player.IsReady,
+            player.HasForfeited,
+            player.PlayerColor);
     }
 
     private static BoardStateDto ToDto(this BoardState board)
     {
         return new BoardStateDto(
+            board.BoardSeed,
             board.Tiles
                 .OrderBy(tile => tile.R)
                 .ThenBy(tile => tile.Q)
@@ -292,7 +395,8 @@ public static class LobbyDtoMapper
                     tile.R,
                     tile.ResourceType.ToString(),
                     tile.NumberToken,
-                    tile.IsBlocked))
+                    tile.IsBlocked,
+                    tile.AdjacentTileIds.ToList()))
                 .ToList(),
             board.Vertices
                 .OrderBy(vertex => vertex.VertexId)
@@ -302,6 +406,8 @@ public static class LobbyDtoMapper
                     vertex.Y,
                     vertex.IsCoastal,
                     vertex.AdjacentTileIds.ToList(),
+                    vertex.AdjacentVertexIds.ToList(),
+                    vertex.AdjacentEdgeIds.ToList(),
                     vertex.OwnerPlayerId,
                     vertex.StructureType?.ToString()))
                 .ToList(),
@@ -311,6 +417,7 @@ public static class LobbyDtoMapper
                     edge.EdgeId,
                     edge.StartVertexId,
                     edge.EndVertexId,
+                    edge.AdjacentTileIds.ToList(),
                     edge.OwnerPlayerId))
                 .ToList(),
             board.HarborSlots
@@ -358,19 +465,31 @@ public static class LobbyDtoMapper
         var tradeRates = GameService.GetTradeRates(game, player.PlayerId)
             .Select(rate => rate.ToDto())
             .ToList();
+        var pieceSupply = PlayerPieceSupplyService.GetSupply(game, player.PlayerId);
 
         return new PlayerGameStateDto(
             player.PlayerId,
             player.PlayerName,
             player.IsHost,
+            player.ConnectionStatus.ToString(),
+            player.HasForfeited,
+            player.PlayerColor,
             player.Supplies.Values.Sum(),
             supplies,
             player.CampsBuilt,
             player.StrongholdsBuilt,
             player.TrailsBuilt,
+            pieceSupply.TotalTrails,
+            pieceSupply.RemainingTrails,
+            pieceSupply.TotalCamps,
+            pieceSupply.RemainingCamps,
+            pieceSupply.TotalStrongholds,
+            pieceSupply.RemainingStrongholds,
             GameService.CalculateVictoryPoints(game, player, revealHidden: false),
             GameService.CalculateVictoryPoints(game, player, revealHidden),
             game.LargestArmyPlayerId == player.PlayerId,
+            game.LongestTrailPlayerId == player.PlayerId,
+            player.LongestTrailLength,
             player.PlayedKnightCount,
             player.HasPlayedDevelopmentCardThisTurn,
             player.DevelopmentCards.Count,
@@ -389,6 +508,57 @@ public static class LobbyDtoMapper
             rate.Rate,
             rate.Source.ToString(),
             rate.PortId);
+    }
+
+    private static PlayerTradeOfferDto ToDto(this PlayerTradeOffer offer, GameState game, string? viewerPlayerId)
+    {
+        var proposer = game.Players.FirstOrDefault(player =>
+            string.Equals(player.PlayerId, offer.ProposerPlayerId, StringComparison.OrdinalIgnoreCase));
+        var target = game.Players.FirstOrDefault(player =>
+            string.Equals(player.PlayerId, offer.TargetPlayerId, StringComparison.OrdinalIgnoreCase));
+        var isPending = offer.Status == PlayerTradeOfferStatus.Pending;
+        var isStillActionable = isPending
+            && game.Status == GameStatus.InProgress
+            && game.Phase == GamePhase.NormalTurn
+            && game.PendingWardenAction == WardenAction.None
+            && game.CurrentPlayer.ActiveDevelopmentCardEffect is null
+            && game.HasRolledThisTurn
+            && offer.TurnNumber == game.TurnNumber
+            && string.Equals(game.CurrentPlayer.PlayerId, offer.ProposerPlayerId, StringComparison.OrdinalIgnoreCase);
+        var proposerCanPay = proposer is not null && HasSupplies(proposer, offer.OfferedResources);
+        var targetCanPay = target is not null && HasSupplies(target, offer.RequestedResources);
+
+        return new PlayerTradeOfferDto(
+            offer.TradeOfferId,
+            offer.RoomCode,
+            offer.TurnNumber,
+            offer.ProposerPlayerId,
+            proposer?.PlayerName ?? "Player",
+            offer.TargetPlayerId,
+            target?.PlayerName ?? "Player",
+            ToResourceDictionaryDto(offer.OfferedResources),
+            ToResourceDictionaryDto(offer.RequestedResources),
+            offer.Status.ToString(),
+            offer.CreatedAt,
+            offer.ResolvedAt,
+            isStillActionable
+                && proposerCanPay
+                && targetCanPay
+                && string.Equals(viewerPlayerId, offer.TargetPlayerId, StringComparison.OrdinalIgnoreCase),
+            isStillActionable && string.Equals(viewerPlayerId, offer.TargetPlayerId, StringComparison.OrdinalIgnoreCase),
+            isStillActionable && string.Equals(viewerPlayerId, offer.ProposerPlayerId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasSupplies(PlayerGameState player, IReadOnlyDictionary<ResourceType, int> required)
+    {
+        return required.All(item => player.Supplies[item.Key] >= item.Value);
+    }
+
+    private static IReadOnlyDictionary<string, int> ToResourceDictionaryDto(IReadOnlyDictionary<ResourceType, int> resources)
+    {
+        return ResourceTypes.All
+            .Where(resource => resources.TryGetValue(resource, out var amount) && amount > 0)
+            .ToDictionary(resource => resource.ToString(), resource => resources[resource]);
     }
 
     private static PlayerDevelopmentCardDto ToDto(this PlayerDevelopmentCard card, GameState game, bool isOwner)
@@ -424,6 +594,16 @@ public static class LobbyDtoMapper
         return new WardenDiscardRequirementDto(
             discard.PlayerId,
             discard.RequiredAmount);
+    }
+
+    private static GamePauseDto ToDto(this GamePauseState pause)
+    {
+        return new GamePauseDto(
+            pause.IsPaused,
+            pause.Reason,
+            pause.DisconnectedPlayerId,
+            pause.PausedAt,
+            pause.ReconnectDeadline);
     }
 
     private static string GetCardStatus(PlayerDevelopmentCard card, GameState game)

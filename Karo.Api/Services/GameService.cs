@@ -38,13 +38,18 @@ public sealed class GameService
 
     private readonly object _gate = new();
     private readonly BoardGenerator _boardGenerator;
+    private readonly BoardIntegrityValidator _boardIntegrityValidator;
     private readonly Dictionary<string, GameState> _games = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<GameService>? _logger;
 
-    public GameService(BoardGenerator boardGenerator, ILogger<GameService>? logger = null)
+    public GameService(
+        BoardGenerator boardGenerator,
+        ILogger<GameService>? logger = null,
+        BoardIntegrityValidator? boardIntegrityValidator = null)
     {
         _boardGenerator = boardGenerator;
         _logger = logger;
+        _boardIntegrityValidator = boardIntegrityValidator ?? new BoardIntegrityValidator();
     }
 
     public GameState StartGame(Room room)
@@ -62,11 +67,11 @@ public sealed class GameService
         }
     }
 
-    public GameState RestartGame(Room room)
+    public GameState RestartGame(Room room, int? boardSeed = null)
     {
         lock (_gate)
         {
-            var game = CreateGame(room);
+            var game = CreateGame(room, boardSeed);
             _games[room.RoomCode] = game;
             return game;
         }
@@ -91,17 +96,237 @@ public sealed class GameService
         }
     }
 
+    public GameState PauseForReconnect(string roomCode, string playerId, DateTimeOffset reconnectDeadline, string reason)
+    {
+        lock (_gate)
+        {
+            var game = EnsureGame(roomCode);
+            if (game.Status == GameStatus.Finished || game.Pause?.IsPaused == true)
+            {
+                return game;
+            }
+
+            game.Pause = new GamePauseState
+            {
+                IsPaused = true,
+                Reason = reason,
+                DisconnectedPlayerId = playerId,
+                PausedAt = DateTimeOffset.UtcNow,
+                ReconnectDeadline = reconnectDeadline
+            };
+            AddLog(game, $"Match paused while {GetGamePlayer(game, playerId).PlayerName} reconnects.", playerId);
+            MarkStateChanged(game);
+            return game;
+        }
+    }
+
+    public GameState ResumeFromReconnect(string roomCode, string playerId)
+    {
+        lock (_gate)
+        {
+            var game = EnsureGame(roomCode);
+            if (game.Pause?.IsPaused == true
+                && string.Equals(game.Pause.DisconnectedPlayerId, playerId, StringComparison.OrdinalIgnoreCase))
+            {
+                game.Pause = null;
+                AddLog(game, $"{GetGamePlayer(game, playerId).PlayerName} reconnected. Match resumed.", playerId);
+                MarkStateChanged(game);
+            }
+
+            return game;
+        }
+    }
+
+    public GameState? SetPlayerConnectionStatus(string roomCode, string playerId, PlayerConnectionStatus status)
+    {
+        lock (_gate)
+        {
+            if (!_games.TryGetValue(roomCode, out var game))
+            {
+                return null;
+            }
+
+            var player = game.Players.FirstOrDefault(candidate => string.Equals(candidate.PlayerId, playerId, StringComparison.OrdinalIgnoreCase));
+            if (player is not null)
+            {
+                player.ConnectionStatus = status;
+                MarkStateChanged(game);
+            }
+
+            return game;
+        }
+    }
+
+    public GameState? SyncRoomPlayerMetadata(Room room)
+    {
+        lock (_gate)
+        {
+            if (!_games.TryGetValue(room.RoomCode, out var game))
+            {
+                return null;
+            }
+
+            var changed = false;
+            foreach (var gamePlayer in game.Players)
+            {
+                var roomPlayer = room.Players.FirstOrDefault(player =>
+                    string.Equals(player.PlayerId, gamePlayer.PlayerId, StringComparison.OrdinalIgnoreCase));
+                if (roomPlayer is null)
+                {
+                    continue;
+                }
+
+                if (gamePlayer.ConnectionStatus != roomPlayer.ConnectionStatus)
+                {
+                    gamePlayer.ConnectionStatus = roomPlayer.ConnectionStatus;
+                    changed = true;
+                }
+
+                if (gamePlayer.IsHost != roomPlayer.IsHost)
+                {
+                    gamePlayer.IsHost = roomPlayer.IsHost;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                MarkStateChanged(game);
+            }
+
+            return game;
+        }
+    }
+
+    public GameState? InvalidateTradeOffersForPlayer(string roomCode, string playerId)
+    {
+        lock (_gate)
+        {
+            if (!_games.TryGetValue(roomCode, out var game))
+            {
+                return null;
+            }
+
+            var pendingOffers = game.TradeOffers.Where(offer => offer.Status == PlayerTradeOfferStatus.Pending
+                && (string.Equals(offer.ProposerPlayerId, playerId, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(offer.TargetPlayerId, playerId, StringComparison.OrdinalIgnoreCase))).ToList();
+            foreach (var offer in pendingOffers)
+            {
+                ExpireTradeOffer(offer);
+            }
+
+            if (pendingOffers.Count > 0)
+            {
+                AddLog(game, "A pending trade offer expired because a player disconnected.", playerId);
+                MarkStateChanged(game);
+            }
+
+            return game;
+        }
+    }
+
+    public static void MarkStateChanged(GameState game)
+    {
+        game.GameStateVersion++;
+    }
+
+    public GameState ForfeitPlayer(string roomCode, string playerId, string reason)
+    {
+        lock (_gate)
+        {
+            var game = EnsureGame(roomCode);
+            var player = GetGamePlayer(game, playerId);
+            if (player.HasForfeited)
+            {
+                return game;
+            }
+
+            var wasCurrentPlayer = string.Equals(game.CurrentPlayer.PlayerId, playerId, StringComparison.OrdinalIgnoreCase);
+            player.HasForfeited = true;
+            player.ConnectionStatus = PlayerConnectionStatus.Forfeited;
+            player.ActiveDevelopmentCardEffect = null;
+            player.HasPlayedDevelopmentCardThisTurn = false;
+            player.DevelopmentCards.Clear();
+            foreach (var resource in ResourceTypes.All)
+            {
+                player.Supplies[resource] = 0;
+            }
+
+            foreach (var offer in game.TradeOffers.Where(offer => offer.Status == PlayerTradeOfferStatus.Pending
+                && (string.Equals(offer.ProposerPlayerId, playerId, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(offer.TargetPlayerId, playerId, StringComparison.OrdinalIgnoreCase))))
+            {
+                ExpireTradeOffer(offer);
+            }
+
+            game.PendingWardenDiscards.RemoveAll(discard => string.Equals(discard.PlayerId, playerId, StringComparison.OrdinalIgnoreCase));
+            game.WardenVictimOptions.RemoveAll(candidate => string.Equals(candidate, playerId, StringComparison.OrdinalIgnoreCase));
+            if (string.Equals(game.CurrentWardenPlayerId, playerId, StringComparison.OrdinalIgnoreCase))
+            {
+                CompleteWardenFlow(game, checkWinner: false);
+            }
+
+            var orderIndex = game.PlayerOrder.FindIndex(candidate => string.Equals(candidate, playerId, StringComparison.OrdinalIgnoreCase));
+            if (orderIndex >= 0)
+            {
+                game.PlayerOrder.RemoveAt(orderIndex);
+                if (game.SetupPlayerIndex > orderIndex)
+                {
+                    game.SetupPlayerIndex--;
+                }
+                else if (game.SetupPlayerIndex >= game.PlayerOrder.Count)
+                {
+                    game.SetupPlayerIndex = Math.Max(0, game.PlayerOrder.Count - 1);
+                }
+            }
+
+            RecalculateLargestArmyAfterForfeit(game, playerId);
+            RecalculateLongestTrail(game, playerId, checkWinner: false);
+            if (wasCurrentPlayer && ActivePlayers(game).Count > 0)
+            {
+                game.CurrentPlayerIndex = FindNextActivePlayerIndex(game, game.CurrentPlayerIndex);
+            }
+
+            game.Pause = null;
+            AddLog(game, $"{player.PlayerName} forfeited the match. {reason}", playerId);
+            MarkStateChanged(game);
+            return game;
+        }
+    }
+
+    public GameState FinishAbandonedMatch(string roomCode, string reason, string? actorPlayerId = null)
+    {
+        lock (_gate)
+        {
+            var game = EnsureGame(roomCode);
+            if (game.Status != GameStatus.Finished)
+            {
+                ExpirePendingTradeOffers(game, actorPlayerId);
+                game.Status = GameStatus.Finished;
+                game.Phase = GamePhase.Finished;
+                game.WinnerPlayerId = null;
+                game.FinishedAt = DateTimeOffset.UtcNow;
+                game.Pause = null;
+                AddLog(game, reason, actorPlayerId);
+                MarkStateChanged(game);
+            }
+
+            return game;
+        }
+    }
+
     public GameState EndTurn(string roomCode, string playerId)
     {
         lock (_gate)
         {
             var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId);
 
+            ExpirePendingTradeOffers(game, player.PlayerId);
             player.HasPlayedDevelopmentCardThisTurn = false;
             player.ActiveDevelopmentCardEffect = null;
             game.LastDiceRoll = null;
             game.HasRolledThisTurn = false;
-            game.CurrentPlayerIndex = (game.CurrentPlayerIndex + 1) % game.Players.Count;
+            game.CurrentPlayerIndex = FindNextActivePlayerIndex(game, game.CurrentPlayerIndex);
             game.CurrentPlayer.HasPlayedDevelopmentCardThisTurn = false;
             game.CurrentPlayer.ActiveDevelopmentCardEffect = null;
             game.TurnNumber++;
@@ -118,8 +343,8 @@ public sealed class GameService
             var (game, player) = EnsureNormalTurnCurrentPlayer(
                 roomCode,
                 playerId,
-                setupMessage: "You cannot buy Development Cards during setup.",
-                rollMessage: "You must roll before buying a Development Card.");
+                setupMessage: "Development Cards cannot be bought during setup.",
+                rollMessage: "Roll the dice before buying a Development Card.");
 
             if (game.DevelopmentDeck.Count == 0)
             {
@@ -176,6 +401,150 @@ public sealed class GameService
                 game,
                 $"{player.PlayerName} traded {tradeRate.Rate} {offeredResource} for 1 {requestedResource}.",
                 player.PlayerId);
+            return game;
+        }
+    }
+
+    public GameState CreateTradeOffer(
+        string roomCode,
+        string playerId,
+        string targetPlayerId,
+        IReadOnlyDictionary<ResourceType, int> offeredResources,
+        IReadOnlyDictionary<ResourceType, int> requestedResources)
+    {
+        lock (_gate)
+        {
+            var (game, proposer) = EnsurePlayerTradeCreationAllowed(roomCode, playerId);
+            var target = game.Players.FirstOrDefault(candidate =>
+                    string.Equals(candidate.PlayerId, targetPlayerId, StringComparison.OrdinalIgnoreCase))
+                ?? throw new GameRuleException("Choose a valid player.");
+
+            if (string.Equals(proposer.PlayerId, target.PlayerId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GameRuleException("You cannot trade with yourself.");
+            }
+
+            var offered = NormalizeTradeResources(offeredResources);
+            var requested = NormalizeTradeResources(requestedResources);
+
+            if (offered.Values.Sum() == 0 || requested.Values.Sum() == 0)
+            {
+                throw new GameRuleException("Trade offers must include Supplies from both players.");
+            }
+
+            if (!HasSupplies(proposer, offered))
+            {
+                throw new GameRuleException("Not enough Supplies for this offer.");
+            }
+
+            var offer = new PlayerTradeOffer
+            {
+                TradeOfferId = Guid.NewGuid().ToString("N"),
+                RoomCode = game.RoomCode,
+                TurnNumber = game.TurnNumber,
+                ProposerPlayerId = proposer.PlayerId,
+                TargetPlayerId = target.PlayerId,
+                OfferedResources = offered,
+                RequestedResources = requested,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            game.TradeOffers.Add(offer);
+            AddLog(game, $"{proposer.PlayerName} offered a trade to {target.PlayerName}.", proposer.PlayerId);
+            return game;
+        }
+    }
+
+    public GameState AcceptTradeOffer(string roomCode, string playerId, string tradeOfferId)
+    {
+        lock (_gate)
+        {
+            var game = EnsureGame(roomCode);
+            var accepter = GetGamePlayer(game, playerId);
+            var offer = GetPendingTradeOffer(game, tradeOfferId);
+
+            EnsurePlayerTradeResolutionAllowed(game, offer);
+
+            if (!string.Equals(offer.TargetPlayerId, accepter.PlayerId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GameRuleException("Only the target player can accept this trade offer.");
+            }
+
+            var proposer = GetGamePlayer(game, offer.ProposerPlayerId);
+
+            if (!HasSupplies(proposer, offer.OfferedResources))
+            {
+                throw new GameRuleException("The proposing player no longer has the offered Supplies.");
+            }
+
+            if (!HasSupplies(accepter, offer.RequestedResources))
+            {
+                throw new GameRuleException("The other player no longer has the requested Supplies.");
+            }
+
+            TransferSupplies(proposer, accepter, offer.OfferedResources);
+            TransferSupplies(accepter, proposer, offer.RequestedResources);
+
+            offer.Status = PlayerTradeOfferStatus.Accepted;
+            offer.ResolvedAt = DateTimeOffset.UtcNow;
+
+            AddLog(game, $"{accepter.PlayerName} accepted {proposer.PlayerName}'s trade.", accepter.PlayerId);
+            CheckWinner(game, proposer);
+            if (game.Status != GameStatus.Finished)
+            {
+                CheckWinner(game, accepter);
+            }
+
+            return game;
+        }
+    }
+
+    public GameState RejectTradeOffer(string roomCode, string playerId, string tradeOfferId)
+    {
+        lock (_gate)
+        {
+            var game = EnsureGame(roomCode);
+            var target = GetGamePlayer(game, playerId);
+            var offer = GetPendingTradeOffer(game, tradeOfferId);
+
+            EnsurePlayerTradeResolutionAllowed(game, offer);
+
+            if (!string.Equals(offer.TargetPlayerId, target.PlayerId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GameRuleException("Only the target player can reject this trade offer.");
+            }
+
+            var proposer = GetGamePlayer(game, offer.ProposerPlayerId);
+            offer.Status = PlayerTradeOfferStatus.Rejected;
+            offer.ResolvedAt = DateTimeOffset.UtcNow;
+            AddLog(game, $"{target.PlayerName} rejected {proposer.PlayerName}'s trade.", target.PlayerId);
+            return game;
+        }
+    }
+
+    public GameState CancelTradeOffer(string roomCode, string playerId, string tradeOfferId)
+    {
+        lock (_gate)
+        {
+            var game = EnsureGame(roomCode);
+            var proposer = GetGamePlayer(game, playerId);
+            var offer = GetPendingTradeOffer(game, tradeOfferId);
+
+            EnsurePlayerTradeResolutionAllowed(game, offer);
+
+            if (!string.Equals(offer.ProposerPlayerId, proposer.PlayerId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GameRuleException("Only the proposing player can cancel this trade offer.");
+            }
+
+            if (!string.Equals(game.CurrentPlayer.PlayerId, proposer.PlayerId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GameRuleException("Only the current player can create trade offers.");
+            }
+
+            offer.Status = PlayerTradeOfferStatus.Cancelled;
+            offer.ResolvedAt = DateTimeOffset.UtcNow;
+            AddLog(game, $"{proposer.PlayerName} cancelled the trade offer.", proposer.PlayerId);
             return game;
         }
     }
@@ -384,6 +753,13 @@ public sealed class GameService
         lock (_gate)
         {
             var (game, player, card) = EnsurePlayableActionCard(roomCode, playerId, cardId, DevelopmentCardType.RoadBuilding);
+            PlayerPieceSupplyService.EnsureTrailAvailable(game, player.PlayerId);
+
+            if (!HasLegalTrailPlacement(game, player))
+            {
+                throw new GameRuleException("No legal Trail placement is available.");
+            }
+
             MarkActionCardPlayed(game, player, card);
             player.ActiveDevelopmentCardEffect = new ActiveDevelopmentCardEffect
             {
@@ -399,14 +775,51 @@ public sealed class GameService
     {
         lock (_gate)
         {
-            var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId);
+            var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId, requireRolled: false, allowActiveDevelopmentEffect: true);
 
             if (player.ActiveDevelopmentCardEffect?.Type != ActiveDevelopmentCardType.RoadBuilding)
             {
                 throw new GameRuleException("Road Building is not active.");
             }
 
-            throw new GameRuleException("Free Trail placement will be available when the trail board layer is implemented.");
+            var effect = player.ActiveDevelopmentCardEffect;
+            if (effect.FreeTrailsPlaced >= effect.MaxFreeTrails)
+            {
+                throw new GameRuleException("Road Building has already placed its free Trails.");
+            }
+
+            PlayerPieceSupplyService.EnsureTrailAvailable(game, player.PlayerId);
+
+            var edge = game.Board.Edges.FirstOrDefault(candidate => candidate.EdgeId == edgeId)
+                ?? throw new GameRuleException("Choose a valid Trail edge.");
+
+            if (edge.OwnerPlayerId is not null)
+            {
+                throw new GameRuleException("That Trail edge is already occupied.");
+            }
+
+            if (!CanPlaceTrailFromNetwork(game, player, edge))
+            {
+                throw new GameRuleException(GetTrailConnectionFailureMessage(game, player, edge));
+            }
+
+            edge.OwnerPlayerId = player.PlayerId;
+            player.TrailsBuilt++;
+            effect.FreeTrailsPlaced++;
+            AddLog(game, $"{player.PlayerName} placed a free Trail.", player.PlayerId);
+
+            if (effect.FreeTrailsPlaced >= effect.MaxFreeTrails)
+            {
+                player.ActiveDevelopmentCardEffect = null;
+            }
+            else if (PlayerPieceSupplyService.GetSupply(game, player.PlayerId).RemainingTrails <= 0)
+            {
+                player.ActiveDevelopmentCardEffect = null;
+                AddLog(game, $"{player.PlayerName} has no Trail pieces remaining.", player.PlayerId);
+            }
+
+            RecalculateLongestTrail(game, player.PlayerId);
+            return game;
         }
     }
 
@@ -414,9 +827,101 @@ public sealed class GameService
     {
         lock (_gate)
         {
-            var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId);
+            var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId, requireRolled: false, allowActiveDevelopmentEffect: true);
             player.ActiveDevelopmentCardEffect = null;
             AddLog(game, $"{player.PlayerName} canceled their active development effect.", player.PlayerId);
+            return game;
+        }
+    }
+
+    public GameState BuildTrail(string roomCode, string playerId, string edgeId)
+    {
+        lock (_gate)
+        {
+            var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId);
+            PlayerPieceSupplyService.EnsureTrailAvailable(game, player.PlayerId);
+
+            var edge = game.Board.Edges.FirstOrDefault(candidate => candidate.EdgeId == edgeId)
+                ?? throw new GameRuleException("Choose a valid Trail edge.");
+
+            if (edge.OwnerPlayerId is not null)
+            {
+                throw new GameRuleException("That Trail edge is already occupied.");
+            }
+
+            if (!CanPlaceTrailFromNetwork(game, player, edge))
+            {
+                throw new GameRuleException(GetTrailConnectionFailureMessage(game, player, edge));
+            }
+
+            Spend(player, TrailCost);
+            edge.OwnerPlayerId = player.PlayerId;
+            player.TrailsBuilt++;
+            AddLog(game, $"{player.PlayerName} built a Trail.", player.PlayerId);
+            RecalculateLongestTrail(game, player.PlayerId);
+            return game;
+        }
+    }
+
+    public GameState BuildCamp(string roomCode, string playerId, string vertexId)
+    {
+        lock (_gate)
+        {
+            var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId);
+            PlayerPieceSupplyService.EnsureCampAvailable(game, player.PlayerId);
+
+            var vertex = game.Board.Vertices.FirstOrDefault(candidate => candidate.VertexId == vertexId)
+                ?? throw new GameRuleException("Choose a valid build node.");
+
+            if (vertex.OwnerPlayerId is not null || vertex.StructureType is not null)
+            {
+                throw new GameRuleException("That build node is already occupied.");
+            }
+
+            if (HasAdjacentStructure(game.Board, vertex.VertexId))
+            {
+                throw new GameRuleException("Camps must leave at least one empty node between settlements.");
+            }
+
+            if (!CanBuildCampFromNetwork(game, player, vertex.VertexId))
+            {
+                throw new GameRuleException("Camps must connect to one of your Trails.");
+            }
+
+            Spend(player, CampCost);
+            vertex.OwnerPlayerId = player.PlayerId;
+            vertex.StructureType = BoardStructureType.Camp;
+            player.CampsBuilt++;
+            AddLog(game, $"{player.PlayerName} built a Camp.", player.PlayerId);
+            RecalculateLongestTrail(game, player.PlayerId);
+            CheckWinner(game, player);
+            return game;
+        }
+    }
+
+    public GameState BuildStronghold(string roomCode, string playerId, string vertexId)
+    {
+        lock (_gate)
+        {
+            var (game, player) = EnsureNormalTurnCurrentPlayer(roomCode, playerId);
+            PlayerPieceSupplyService.EnsureStrongholdAvailable(game, player.PlayerId);
+
+            var vertex = game.Board.Vertices.FirstOrDefault(candidate => candidate.VertexId == vertexId)
+                ?? throw new GameRuleException("Choose a valid build node.");
+
+            if (!string.Equals(vertex.OwnerPlayerId, player.PlayerId, StringComparison.OrdinalIgnoreCase)
+                || vertex.StructureType != BoardStructureType.Camp)
+            {
+                throw new GameRuleException("Choose one of your Camps to upgrade.");
+            }
+
+            Spend(player, StrongholdCost);
+            vertex.StructureType = BoardStructureType.Stronghold;
+            player.CampsBuilt--;
+            player.StrongholdsBuilt++;
+            AddLog(game, $"{player.PlayerName} upgraded a Camp to a Stronghold.", player.PlayerId);
+            RecalculateLongestTrail(game, player.PlayerId);
+            CheckWinner(game, player);
             return game;
         }
     }
@@ -431,6 +936,8 @@ public sealed class GameService
             {
                 throw new GameRuleException("Place your connected Trail before placing another Camp.");
             }
+
+            PlayerPieceSupplyService.EnsureCampAvailable(game, player.PlayerId);
 
             var vertex = game.Board.Vertices.FirstOrDefault(candidate => candidate.VertexId == vertexId)
                 ?? throw new GameRuleException("Choose a valid build node.");
@@ -458,6 +965,7 @@ public sealed class GameService
                 GrantStartingSupplies(game, player, vertex);
             }
 
+            RecalculateLongestTrail(game, player.PlayerId, checkWinner: false);
             return game;
         }
     }
@@ -478,6 +986,8 @@ public sealed class GameService
                 throw new GameRuleException("Place your setup Camp before placing a Trail.");
             }
 
+            PlayerPieceSupplyService.EnsureTrailAvailable(game, player.PlayerId);
+
             var edge = game.Board.Edges.FirstOrDefault(candidate => candidate.EdgeId == edgeId)
                 ?? throw new GameRuleException("Choose a valid Trail edge.");
 
@@ -494,6 +1004,7 @@ public sealed class GameService
             edge.OwnerPlayerId = player.PlayerId;
             player.TrailsBuilt++;
             AddLog(game, $"{player.PlayerName} placed a setup Trail.", player.PlayerId);
+            RecalculateLongestTrail(game, player.PlayerId, checkWinner: false);
             AdvanceSetupTurn(game);
             return game;
         }
@@ -660,8 +1171,7 @@ public sealed class GameService
 
     private static HexTile PickStartingWardenTile(BoardState board)
     {
-        return board.Tiles.FirstOrDefault(tile => tile.ResourceType == TileResourceType.None)
-            ?? board.Tiles.First(tile => tile.NumberToken is null);
+        return board.Tiles.Single(tile => tile.ResourceType == TileResourceType.None);
     }
 
     private static HarborType ToHarborType(ResourceType resource)
@@ -689,11 +1199,39 @@ public sealed class GameService
         return cards;
     }
 
-    private GameState CreateGame(Room room)
+    private GameState CreateGame(Room room, int? boardSeed = null)
     {
-        var board = _boardGenerator.Generate();
+        BoardState board;
+        try
+        {
+            board = boardSeed is null
+                ? _boardGenerator.Generate()
+                : _boardGenerator.Generate(boardSeed.Value);
+        }
+        catch (BoardGenerationException exception)
+        {
+            _logger?.LogError(
+                exception,
+                "Karo board generation failed for room {RoomCode} and seed {BoardSeed}. Errors: {BoardErrors}",
+                room.RoomCode,
+                exception.BoardSeed,
+                string.Join(" | ", exception.Errors));
+            throw new GameRuleException("Karo could not create a valid board. Please try starting the match again.");
+        }
+
         var wardenTile = PickStartingWardenTile(board);
         wardenTile.IsBlocked = true;
+
+        var validation = _boardIntegrityValidator.Validate(board, wardenTile.TileId, requireWardenOnDesert: true);
+        if (!validation.IsValid)
+        {
+            _logger?.LogError(
+                "Karo board validation failed for room {RoomCode} and seed {BoardSeed}. Errors: {BoardErrors}",
+                room.RoomCode,
+                validation.BoardSeed,
+                string.Join(" | ", validation.Errors));
+            throw new GameRuleException("Karo could not validate the generated board. Please try starting the match again.");
+        }
 
         var game = new GameState
         {
@@ -715,7 +1253,9 @@ public sealed class GameService
             {
                 PlayerId = player.PlayerId,
                 PlayerName = player.PlayerName,
-                IsHost = player.IsHost
+                IsHost = player.IsHost,
+                ConnectionStatus = player.ConnectionStatus,
+                PlayerColor = player.PlayerColor
             };
 
             game.Players.Add(gamePlayer);
@@ -761,7 +1301,8 @@ public sealed class GameService
         string playerId,
         bool requireRolled = true,
         string? setupMessage = null,
-        string? rollMessage = null)
+        string? rollMessage = null,
+        bool allowActiveDevelopmentEffect = false)
     {
         var (game, player) = EnsureCurrentPlayer(roomCode, playerId);
 
@@ -770,17 +1311,158 @@ public sealed class GameService
             throw new GameRuleException(setupMessage ?? "The match is still in setup.");
         }
 
-        if (requireRolled && !game.HasRolledThisTurn)
-        {
-            throw new GameRuleException(rollMessage ?? "You must roll dice before taking this action.");
-        }
-
         if (game.PendingWardenAction != WardenAction.None)
         {
             throw new GameRuleException("Resolve the Warden action first.");
         }
 
+        if (!allowActiveDevelopmentEffect && player.ActiveDevelopmentCardEffect is not null)
+        {
+            throw new GameRuleException("Resolve the current Development Card action first.");
+        }
+
+        if (requireRolled && !game.HasRolledThisTurn)
+        {
+            throw new GameRuleException(rollMessage ?? "You must roll dice before taking this action.");
+        }
+
         return (game, player);
+    }
+
+    private (GameState Game, PlayerGameState Player) EnsurePlayerTradeCreationAllowed(string roomCode, string playerId)
+    {
+        var game = EnsureGame(roomCode);
+
+        if (game.Status == GameStatus.Finished
+            || game.Pause?.IsPaused == true
+            || game.Phase != GamePhase.NormalTurn
+            || game.PendingWardenAction != WardenAction.None
+            || game.CurrentPlayer.ActiveDevelopmentCardEffect is not null)
+        {
+            throw new GameRuleException("Trading is not available right now.");
+        }
+
+        if (!string.Equals(game.CurrentPlayer.PlayerId, playerId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new GameRuleException("Only the current player can create trade offers.");
+        }
+
+        if (!game.HasRolledThisTurn)
+        {
+            throw new GameRuleException("You must roll before trading.");
+        }
+
+        return (game, game.CurrentPlayer);
+    }
+
+    private static void EnsurePlayerTradeResolutionAllowed(GameState game, PlayerTradeOffer offer)
+    {
+        if (game.Status == GameStatus.Finished
+            || game.Pause?.IsPaused == true
+            || game.Phase != GamePhase.NormalTurn
+            || game.PendingWardenAction != WardenAction.None
+            || game.CurrentPlayer.ActiveDevelopmentCardEffect is not null
+            || !game.HasRolledThisTurn
+            || offer.TurnNumber != game.TurnNumber
+            || !string.Equals(game.CurrentPlayer.PlayerId, offer.ProposerPlayerId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new GameRuleException("This trade offer is no longer available.");
+        }
+    }
+
+    private static PlayerTradeOffer GetPendingTradeOffer(GameState game, string tradeOfferId)
+    {
+        var offer = game.TradeOffers.FirstOrDefault(candidate =>
+                string.Equals(candidate.TradeOfferId, tradeOfferId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new GameRuleException("This trade offer is no longer available.");
+
+        if (offer.Status != PlayerTradeOfferStatus.Pending)
+        {
+            throw new GameRuleException("This trade offer is no longer available.");
+        }
+
+        return offer;
+    }
+
+    private static Dictionary<ResourceType, int> NormalizeTradeResources(IReadOnlyDictionary<ResourceType, int> resources)
+    {
+        var normalized = new Dictionary<ResourceType, int>();
+
+        foreach (var (resource, amount) in resources)
+        {
+            if (!ResourceTypes.All.Contains(resource))
+            {
+                throw new GameRuleException("Choose a valid resource.");
+            }
+
+            if (amount < 0)
+            {
+                throw new GameRuleException("Trade offers must include Supplies from both players.");
+            }
+
+            if (amount == 0)
+            {
+                continue;
+            }
+
+            normalized[resource] = normalized.GetValueOrDefault(resource) + amount;
+        }
+
+        return normalized;
+    }
+
+    private static bool HasSupplies(PlayerGameState player, IReadOnlyDictionary<ResourceType, int> requiredResources)
+    {
+        return requiredResources.All(item => player.Supplies[item.Key] >= item.Value);
+    }
+
+    private static void TransferSupplies(
+        PlayerGameState fromPlayer,
+        PlayerGameState toPlayer,
+        IReadOnlyDictionary<ResourceType, int> resources)
+    {
+        foreach (var (resource, amount) in resources)
+        {
+            fromPlayer.Supplies[resource] -= amount;
+            toPlayer.Supplies[resource] += amount;
+        }
+    }
+
+    private static void ExpirePendingTradeOffers(GameState game, string? actorPlayerId = null)
+    {
+        var pendingOffers = game.TradeOffers
+            .Where(offer => offer.Status == PlayerTradeOfferStatus.Pending)
+            .ToList();
+
+        if (pendingOffers.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var offer in pendingOffers)
+        {
+            ExpireTradeOffer(offer);
+        }
+
+        AddLog(game, "Pending trade offers expired.", actorPlayerId);
+    }
+
+    private static void ExpireTradeOffer(PlayerTradeOffer offer)
+    {
+        if (offer.Status != PlayerTradeOfferStatus.Pending)
+        {
+            return;
+        }
+
+        offer.Status = PlayerTradeOfferStatus.Expired;
+        offer.ResolvedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static PlayerGameState GetGamePlayer(GameState game, string playerId)
+    {
+        return game.Players.FirstOrDefault(candidate =>
+                string.Equals(candidate.PlayerId, playerId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new GameRuleException("Choose a valid player.");
     }
 
     private (GameState Game, PlayerGameState Player) EnsureSetupPlayer(string roomCode, string playerId)
@@ -790,6 +1472,11 @@ public sealed class GameService
         if (game.Status == GameStatus.Finished)
         {
             throw new GameRuleException("This match has already finished.");
+        }
+
+        if (game.Pause?.IsPaused == true)
+        {
+            throw new GameRuleException("The match is paused while a player reconnects.");
         }
 
         if (game.Phase != GamePhase.Setup)
@@ -818,8 +1505,8 @@ public sealed class GameService
         var (game, player) = EnsureNormalTurnCurrentPlayer(
             roomCode,
             playerId,
-            setupMessage: "You cannot play Development Cards during setup.",
-            rollMessage: "You must roll before playing a Development Card.");
+            requireRolled: false,
+            setupMessage: "Development Cards cannot be used during setup.");
         var card = player.DevelopmentCards.FirstOrDefault(candidate => candidate.CardId == cardId)
             ?? throw new GameRuleException("You do not own that development card.");
 
@@ -845,7 +1532,7 @@ public sealed class GameService
 
         if (player.HasPlayedDevelopmentCardThisTurn)
         {
-            throw new GameRuleException("You already played a Development Card this turn.");
+            throw new GameRuleException("You can play only one Development Card per turn.");
         }
 
         return (game, player, card);
@@ -861,11 +1548,35 @@ public sealed class GameService
         return game;
     }
 
+    private static IReadOnlyList<PlayerGameState> ActivePlayers(GameState game)
+    {
+        return game.Players.Where(player => !player.HasForfeited).ToList();
+    }
+
+    private static int FindNextActivePlayerIndex(GameState game, int currentIndex)
+    {
+        for (var offset = 1; offset <= game.Players.Count; offset++)
+        {
+            var candidateIndex = (currentIndex + offset) % game.Players.Count;
+            if (!game.Players[candidateIndex].HasForfeited)
+            {
+                return candidateIndex;
+            }
+        }
+
+        return currentIndex;
+    }
+
     private static void EnsureMatchInProgress(GameState game)
     {
         if (game.Status == GameStatus.Finished)
         {
             throw new GameRuleException("This match has already finished.");
+        }
+
+        if (game.Pause?.IsPaused == true)
+        {
+            throw new GameRuleException("The match is paused while a player reconnects.");
         }
     }
 
@@ -876,6 +1587,80 @@ public sealed class GameService
             .Select(edge => edge.StartVertexId == vertexId ? edge.EndVertexId : edge.StartVertexId)
             .Select(otherVertexId => board.Vertices.First(vertex => vertex.VertexId == otherVertexId))
             .Any(vertex => vertex.OwnerPlayerId is not null && vertex.StructureType is not null);
+    }
+
+    private static bool CanPlaceTrailFromNetwork(GameState game, PlayerGameState player, BoardEdge edge)
+    {
+        return CanConnectTrailAtVertex(game, player.PlayerId, edge.StartVertexId)
+            || CanConnectTrailAtVertex(game, player.PlayerId, edge.EndVertexId);
+    }
+
+    private static bool HasLegalTrailPlacement(GameState game, PlayerGameState player)
+    {
+        return game.Board.Edges.Any(edge =>
+            edge.OwnerPlayerId is null && CanPlaceTrailFromNetwork(game, player, edge));
+    }
+
+    private static bool CanConnectTrailAtVertex(GameState game, string playerId, string vertexId)
+    {
+        if (IsOpponentStructureAtVertex(game, playerId, vertexId))
+        {
+            return false;
+        }
+
+        if (IsOwnStructureAtVertex(game, playerId, vertexId))
+        {
+            return true;
+        }
+
+        return HasOwnedTrailAtVertex(game, playerId, vertexId);
+    }
+
+    private static string GetTrailConnectionFailureMessage(GameState game, PlayerGameState player, BoardEdge edge)
+    {
+        if (IsOpponentStructureAtVertex(game, player.PlayerId, edge.StartVertexId)
+            || IsOpponentStructureAtVertex(game, player.PlayerId, edge.EndVertexId))
+        {
+            return "An opponent's Camp or Stronghold blocks Trail continuation at that node.";
+        }
+
+        return "Trails must connect to one of your Trails, Camps, or Strongholds.";
+    }
+
+    private static bool IsOpponentStructureAtVertex(GameState game, string playerId, string vertexId)
+    {
+        var vertex = FindVertex(game, vertexId);
+        return vertex?.OwnerPlayerId is not null
+            && vertex.StructureType is not null
+            && !string.Equals(vertex.OwnerPlayerId, playerId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsOwnStructureAtVertex(GameState game, string playerId, string vertexId)
+    {
+        var vertex = FindVertex(game, vertexId);
+        return vertex?.OwnerPlayerId is not null
+            && vertex.StructureType is not null
+            && string.Equals(vertex.OwnerPlayerId, playerId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasOwnedTrailAtVertex(GameState game, string playerId, string vertexId)
+    {
+        return game.Board.Edges
+            .Where(candidate => EdgeTouchesVertex(candidate, vertexId))
+            .Any(candidate => string.Equals(candidate.OwnerPlayerId, playerId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static BoardVertex? FindVertex(GameState game, string vertexId)
+    {
+        return game.Board.Vertices.FirstOrDefault(candidate =>
+            string.Equals(candidate.VertexId, vertexId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool CanBuildCampFromNetwork(GameState game, PlayerGameState player, string vertexId)
+    {
+        return game.Board.Edges
+            .Where(edge => EdgeTouchesVertex(edge, vertexId))
+            .Any(edge => string.Equals(edge.OwnerPlayerId, player.PlayerId, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool EdgeTouchesVertex(BoardEdge edge, string vertexId)
@@ -989,14 +1774,18 @@ public sealed class GameService
         game.CurrentWardenPlayerId = null;
         game.PendingWardenDiscards.Clear();
         game.WardenVictimOptions.Clear();
+        game.TradeOffers.Clear();
         game.LargestArmyPlayerId = null;
         game.LargestArmyKnightCount = 0;
         game.LargestArmyAwardedAtTurn = null;
+        game.LongestTrailPlayerId = null;
+        game.LongestTrailLength = 0;
 
         foreach (var player in game.Players)
         {
             player.HasPlayedDevelopmentCardThisTurn = false;
             player.ActiveDevelopmentCardEffect = null;
+            player.LongestTrailLength = LongestTrailService.CalculateLongestTrail(game, player.PlayerId);
         }
 
         AddLog(game, $"Setup complete. {game.CurrentPlayer.PlayerName} takes the first turn.");
@@ -1058,7 +1847,7 @@ public sealed class GameService
 
                 var owner = game.Players.FirstOrDefault(player =>
                     string.Equals(player.PlayerId, vertex.OwnerPlayerId, StringComparison.OrdinalIgnoreCase));
-                if (owner is null)
+                if (owner is null || owner.HasForfeited)
                 {
                     continue;
                 }
@@ -1095,12 +1884,18 @@ public sealed class GameService
 
     private static void BeginRolledSevenWardenFlow(GameState game, string playerId)
     {
+        ExpirePendingTradeOffers(game, playerId);
         game.PendingWardenDiscards.Clear();
         game.WardenVictimOptions.Clear();
         game.CurrentWardenPlayerId = playerId;
 
         foreach (var player in game.Players)
         {
+            if (player.HasForfeited)
+            {
+                continue;
+            }
+
             var supplyCount = player.Supplies.Values.Sum();
             if (supplyCount <= 7)
             {
@@ -1171,6 +1966,7 @@ public sealed class GameService
 
         return game.Players
             .Where(player => adjacentOpponentIds.Contains(player.PlayerId))
+            .Where(player => !player.HasForfeited)
             .Where(player => player.Supplies.Values.Sum() > 0)
             .ToList();
     }
@@ -1331,13 +2127,127 @@ public sealed class GameService
         AddLog(game, $"{player.PlayerName} took Largest Army from {currentHolder.PlayerName}.", player.PlayerId);
     }
 
+    private static void RecalculateLargestArmyAfterForfeit(GameState game, string forfeitedPlayerId)
+    {
+        if (!string.Equals(game.LargestArmyPlayerId, forfeitedPlayerId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var eligiblePlayers = game.Players
+            .Where(player => !player.HasForfeited && player.PlayedKnightCount >= 3)
+            .ToList();
+        var highestCount = eligiblePlayers.Count == 0
+            ? 0
+            : eligiblePlayers.Max(player => player.PlayedKnightCount);
+        var leadingPlayers = eligiblePlayers
+            .Where(player => player.PlayedKnightCount == highestCount)
+            .ToList();
+        var nextHolder = leadingPlayers.Count == 1 ? leadingPlayers[0] : null;
+
+        game.LargestArmyPlayerId = nextHolder?.PlayerId;
+        game.LargestArmyKnightCount = nextHolder?.PlayedKnightCount ?? 0;
+        game.LargestArmyAwardedAtTurn = nextHolder is null ? null : game.TurnNumber;
+
+        if (nextHolder is not null)
+        {
+            AddLog(game, $"{nextHolder.PlayerName} claimed Largest Army after a player forfeited.", nextHolder.PlayerId);
+        }
+    }
+
+    public static void RecalculateLongestTrail(GameState game, string? actorPlayerId = null, bool checkWinner = true)
+    {
+        var previousHolderId = game.LongestTrailPlayerId;
+        var previousLength = game.LongestTrailLength;
+        var previousHolder = previousHolderId is null
+            ? null
+            : game.Players.FirstOrDefault(player => player.PlayerId == previousHolderId);
+
+        foreach (var player in game.Players)
+        {
+            player.LongestTrailLength = player.HasForfeited
+                ? 0
+                : LongestTrailService.CalculateLongestTrail(game, player.PlayerId);
+        }
+
+        var qualifiedPlayers = game.Players
+            .Where(player => !player.HasForfeited && player.LongestTrailLength >= LongestTrailService.MinimumTrailLength)
+            .ToList();
+        var bestLength = qualifiedPlayers.Count == 0
+            ? 0
+            : qualifiedPlayers.Max(player => player.LongestTrailLength);
+        var bestPlayers = qualifiedPlayers
+            .Where(player => player.LongestTrailLength == bestLength)
+            .ToList();
+
+        PlayerGameState? nextHolder = null;
+        if (previousHolder is not null && previousHolder.LongestTrailLength >= LongestTrailService.MinimumTrailLength)
+        {
+            if (bestLength <= previousHolder.LongestTrailLength)
+            {
+                nextHolder = previousHolder;
+            }
+            else if (bestPlayers.Count == 1)
+            {
+                nextHolder = bestPlayers[0];
+            }
+        }
+        else if (bestPlayers.Count == 1)
+        {
+            nextHolder = bestPlayers[0];
+        }
+
+        if (previousHolder is not null && previousHolder.LongestTrailLength < previousLength)
+        {
+            AddLog(game, $"{previousHolder.PlayerName}'s Trail was interrupted.", previousHolder.PlayerId);
+        }
+
+        game.LongestTrailPlayerId = nextHolder?.PlayerId;
+        game.LongestTrailLength = nextHolder?.LongestTrailLength ?? 0;
+
+        if (previousHolderId == game.LongestTrailPlayerId)
+        {
+            return;
+        }
+
+        if (nextHolder is null)
+        {
+            if (previousHolderId is not null)
+            {
+                AddLog(game, "Longest Trail is currently unclaimed.", actorPlayerId);
+            }
+
+            return;
+        }
+
+        if (previousHolderId is null)
+        {
+            AddLog(game, $"{nextHolder.PlayerName} claimed Longest Trail with {nextHolder.LongestTrailLength} Trails.", nextHolder.PlayerId);
+        }
+        else
+        {
+            AddLog(game, $"{nextHolder.PlayerName} took Longest Trail with {nextHolder.LongestTrailLength} Trails.", nextHolder.PlayerId);
+        }
+
+        if (checkWinner)
+        {
+            CheckWinner(game, nextHolder);
+        }
+    }
+
     public static void CheckWinner(GameState game, PlayerGameState player)
     {
+        if (player.HasForfeited)
+        {
+            return;
+        }
+
         if (CalculateVictoryPoints(game, player, revealHidden: true) < game.WinningVictoryPoints)
         {
             return;
         }
 
+        ExpirePendingTradeOffers(game, player.PlayerId);
         game.Status = GameStatus.Finished;
         game.Phase = GamePhase.Finished;
         game.WinnerPlayerId = player.PlayerId;
@@ -1347,6 +2257,11 @@ public sealed class GameService
 
     public static int CalculateVictoryPoints(GameState game, PlayerGameState player, bool revealHidden)
     {
+        if (player.HasForfeited)
+        {
+            return 0;
+        }
+
         if (player.DebugVictoryPointOverride is int debugPoints)
         {
             return debugPoints;
@@ -1355,6 +2270,11 @@ public sealed class GameService
         var points = player.CampsBuilt + player.StrongholdsBuilt * 2;
 
         if (game.LargestArmyPlayerId == player.PlayerId)
+        {
+            points += 2;
+        }
+
+        if (game.LongestTrailPlayerId == player.PlayerId)
         {
             points += 2;
         }

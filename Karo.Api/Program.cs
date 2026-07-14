@@ -30,9 +30,14 @@ builder.Services
     });
 
 builder.Services.AddSingleton<LobbyService>();
+var lifecycleOptions = builder.Configuration.GetSection(RoomLifecycleOptions.SectionName).Get<RoomLifecycleOptions>() ?? new RoomLifecycleOptions();
+builder.Services.AddSingleton(lifecycleOptions);
+builder.Services.AddSingleton<BoardIntegrityValidator>();
 builder.Services.AddSingleton<BoardGenerator>();
 builder.Services.AddSingleton<GameService>();
+builder.Services.AddSingleton<RoomLifecycleService>();
 builder.Services.AddSingleton<DebugGameService>();
+builder.Services.AddHostedService<RoomCleanupHostedService>();
 
 var app = builder.Build();
 

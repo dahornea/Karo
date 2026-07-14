@@ -1,17 +1,33 @@
 # .NET
 bin/
 obj/
+TestResults/
+*.user
+*.suo
 
 # Frontend
 node_modules/
 dist/
 .pnpm-store/
+.vite/
+*.tsbuildinfo
 
 # Local environment
 .env
 .env.*
+!.env.example
 .runlogs/
+
+# Logs and local runtime output
+*.log
+*.log.*
+logs/
 
 # IDE
 .vs/
 .vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

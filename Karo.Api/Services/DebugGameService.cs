@@ -9,11 +9,16 @@ public sealed class DebugGameService
 
     private readonly GameService _gameService;
     private readonly IHostEnvironment _environment;
+    private readonly BoardIntegrityValidator _boardIntegrityValidator;
 
-    public DebugGameService(GameService gameService, IHostEnvironment environment)
+    public DebugGameService(
+        GameService gameService,
+        IHostEnvironment environment,
+        BoardIntegrityValidator? boardIntegrityValidator = null)
     {
         _gameService = gameService;
         _environment = environment;
+        _boardIntegrityValidator = boardIntegrityValidator ?? new BoardIntegrityValidator();
     }
 
     public GameState AddResource(Room room, Player actor, string playerId, ResourceType resource, int amount)
@@ -230,6 +235,18 @@ public sealed class DebugGameService
         });
     }
 
+    public GameState RecalculateLongestTrail(Room room, Player actor)
+    {
+        EnsureDebugAllowed(room, actor);
+
+        return _gameService.UpdateGame(room.RoomCode, game =>
+        {
+            GameService.RecalculateLongestTrail(game, actor.PlayerId);
+            GameService.AddLog(game, "[DEBUG] Recalculated Longest Trail.", actor.PlayerId);
+            return game;
+        });
+    }
+
     public GameState GiveDevelopmentCard(Room room, Player actor, string playerId, DevelopmentCardType? cardType)
     {
         EnsureDebugAllowed(room, actor);
@@ -237,15 +254,26 @@ public sealed class DebugGameService
         return _gameService.UpdateGame(room.RoomCode, game =>
         {
             var player = GetPlayer(game, playerId);
-            var type = cardType ?? GetRandomDevelopmentCardType();
+            var card = cardType is null
+                ? game.DevelopmentDeck.FirstOrDefault()
+                : game.DevelopmentDeck.FirstOrDefault(candidate => candidate.Type == cardType);
+
+            if (card is null)
+            {
+                throw new GameRuleException(cardType is null
+                    ? "The Development Card deck is empty."
+                    : $"No {cardType} cards remain in the Development Card deck.");
+            }
+
+            game.DevelopmentDeck.Remove(card);
             player.DevelopmentCards.Add(new PlayerDevelopmentCard
             {
-                CardId = $"debug-{Guid.NewGuid():N}",
-                Type = type,
+                CardId = card.CardId,
+                Type = card.Type,
                 PurchasedTurn = Math.Max(0, game.TurnNumber - 1)
             });
 
-            GameService.AddLog(game, $"[DEBUG] Gave {player.PlayerName} a {type} card.", actor.PlayerId);
+            GameService.AddLog(game, $"[DEBUG] Drew a {card.Type} card for {player.PlayerName}.", actor.PlayerId);
             GameService.CheckWinner(game, player);
             return game;
         });
@@ -306,6 +334,22 @@ public sealed class DebugGameService
         return game;
     }
 
+    public GameState RegenerateBoard(Room room, Player actor, int boardSeed)
+    {
+        EnsureDebugAllowed(room, actor);
+        var game = _gameService.RestartGame(room, boardSeed);
+        GameService.AddLog(game, $"[DEBUG] Regenerated the board from seed {boardSeed}.", actor.PlayerId);
+        return game;
+    }
+
+    public BoardValidationResult ValidateBoard(Room room, Player actor)
+    {
+        EnsureDebugAllowed(room, actor);
+        var game = _gameService.GetGame(room.RoomCode)
+            ?? throw new GameRuleException("No active match exists for this room.");
+        return _boardIntegrityValidator.Validate(game.Board, game.WardenTileId);
+    }
+
     private void EnsureDebugAllowed(Room room, Player actor)
     {
         if (!_environment.IsDevelopment())
@@ -330,9 +374,4 @@ public sealed class DebugGameService
             ?? throw new GameRuleException("Choose a valid player.");
     }
 
-    private static DevelopmentCardType GetRandomDevelopmentCardType()
-    {
-        var types = Enum.GetValues<DevelopmentCardType>();
-        return types[Random.Shared.Next(types.Length)];
-    }
 }

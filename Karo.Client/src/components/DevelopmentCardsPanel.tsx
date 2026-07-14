@@ -1,24 +1,55 @@
-import { Anchor, Boxes, Clock3, Hand, ScrollText, Shield, Sparkles, X } from 'lucide-react';
+import { Anchor, Boxes, Check, Clock3, Hand, Info, LockKeyhole, ScrollText, Shield, Sparkles, Star, Trophy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { DevelopmentCardType, GameState, PlayerDevelopmentCard, PlayerGameState, ResourceType } from '../types/game';
 import { developmentCardCost, resources } from '../types/game';
+import type { CardAvailability } from '../utils/actionAvailability';
+import {
+  formatMissingDevelopmentCardResources,
+  getDevelopmentCardAvailability
+} from '../utils/actionAvailability';
+import type { CommandDockActionId } from '../utils/commandDock';
+import { getVisibleCommandDockActions } from '../utils/commandDock';
+import { getTurnPanelContext } from '../utils/sidePanels';
 import { BankTradePanel } from './BankTradePanel';
+import type { ActionAssetType } from '../assets/game/gameAssets';
+import { ActionIcon, DevelopmentCardArtwork, PieceAsset, ResourceCost, ResourceIcon, ResourceStripItem } from './GameAsset';
+import { ContextStateIcon, ContextStatusIcon, IconActionButton, PieceCount } from './MatchIconUI';
+import type { DirectBuildSelection, DirectBuildType } from '../utils/directBuild';
+import { directBuildCosts, directBuildLabels } from '../utils/directBuild';
 
 interface TurnStatusPanelProps {
   game: GameState;
   playerId: string | null;
   pendingAction: string | null;
+  directBuildSelection: DirectBuildSelection | null;
+  showDirectBuildHint: boolean;
+  onCancelDirectBuild: () => void;
+  onConfirmDirectBuild: () => void;
+  onDismissDirectBuildHint: () => void;
   onEndTurn: (roomCode: string) => Promise<void>;
   onRollDice: (roomCode: string) => Promise<void>;
   onCancelActiveDevelopmentCard: (roomCode: string) => Promise<void>;
 }
 
+export type UtilityDrawerId = 'trade' | 'cards' | 'log' | 'details';
+
 interface BottomActionTrayProps {
   game: GameState;
   playerId: string | null;
+  activeDrawer: UtilityDrawerId | null;
   pendingAction: string | null;
+  onDrawerChange: (drawer: UtilityDrawerId | null) => void;
   onBuyDevelopmentCard: (roomCode: string) => Promise<void>;
   onTradeWithBank: (roomCode: string, offeredResource: ResourceType, requestedResource: ResourceType) => Promise<void>;
+  onCreateTradeOffer: (
+    roomCode: string,
+    targetPlayerId: string,
+    offeredResources: Partial<Record<ResourceType, number>>,
+    requestedResources: Partial<Record<ResourceType, number>>
+  ) => Promise<void>;
+  onAcceptTradeOffer: (roomCode: string, tradeOfferId: string) => Promise<void>;
+  onRejectTradeOffer: (roomCode: string, tradeOfferId: string) => Promise<void>;
+  onCancelTradeOffer: (roomCode: string, tradeOfferId: string) => Promise<void>;
   onPlayYearOfPlenty: (roomCode: string, cardId: string, selectedResources: ResourceType[]) => Promise<void>;
   onPlayMonopoly: (roomCode: string, cardId: string, selectedResource: ResourceType) => Promise<void>;
   onPlayKnight: (roomCode: string, cardId: string, targetTileId: string, victimPlayerId: string | null) => Promise<void>;
@@ -38,104 +69,99 @@ interface DevelopmentCardsPanelProps {
   onStartRoadBuilding: (roomCode: string, cardId: string) => Promise<void>;
 }
 
-const cardText: Record<DevelopmentCardType, { title: string; description: string; icon: string }> = {
+const cardText: Record<DevelopmentCardType, { title: string; description: string }> = {
   Knight: {
     title: 'Knight',
-    description: 'Move the Warden and steal 1 random supply when possible.',
-    icon: 'K'
+    description: 'Move the Warden and steal 1 random supply when possible.'
   },
   RoadBuilding: {
     title: 'Road Building',
-    description: 'Prepare up to 2 free Trails once trail placement exists.',
-    icon: 'R'
+    description: 'Prepare up to 2 free Trails once trail placement exists.'
   },
   YearOfPlenty: {
     title: 'Year of Plenty',
-    description: 'Take any 2 supplies. You may choose the same supply twice.',
-    icon: 'Y'
+    description: 'Take any 2 supplies. You may choose the same supply twice.'
   },
   Monopoly: {
     title: 'Monopoly',
-    description: 'Name a supply and collect all of it from opponents.',
-    icon: 'M'
+    description: 'Name a supply and collect all of it from opponents.'
   },
   VictoryPoint: {
     title: 'Victory Point',
-    description: 'Hidden private point. Reveals when scoring the win.',
-    icon: 'V'
+    description: 'Hidden private point. Reveals when scoring the win.'
   }
 };
 
-const resourceSymbols: Record<ResourceType, string> = {
-  Wood: 'Wd',
-  Clay: 'C',
-  Wool: 'Wl',
-  Grain: 'G',
-  Stone: 'S'
-};
-
-type UtilityDrawerId = 'supplies' | 'trade' | 'cards' | 'log';
-
-const utilityActions: Array<{ id: UtilityDrawerId; label: string; icon: typeof Boxes }> = [
-  { id: 'supplies', label: 'Supplies', icon: Boxes },
-  { id: 'trade', label: 'Trade', icon: Anchor },
-  { id: 'cards', label: 'Cards', icon: Hand },
-  { id: 'log', label: 'Log', icon: ScrollText }
+const utilityActions: Array<{ id: CommandDockActionId; label: string; asset: ActionAssetType }> = [
+  { id: 'trade', label: 'Trade', asset: 'Trade' },
+  { id: 'cards', label: 'Cards', asset: 'Cards' },
+  { id: 'log', label: 'Game Log', asset: 'GameLog' }
 ];
 
 export function TurnStatusPanel({
   game,
   playerId,
   pendingAction,
+  directBuildSelection,
+  showDirectBuildHint,
+  onCancelDirectBuild,
+  onConfirmDirectBuild,
+  onDismissDirectBuildHint,
   onEndTurn,
   onRollDice,
   onCancelActiveDevelopmentCard
 }: TurnStatusPanelProps) {
-  const { actionsUnlocked, currentTurnPlayer, developmentLockReason, isMyTurn, me, setupPlayer, wardenFlowActive } = getTurnContext(game, playerId);
-  const turnPrimaryText = game.phase === 'Setup'
-    ? `${setupPlayer?.playerName ?? 'Player'} is setting up`
-    : isMyTurn
-      ? 'Your turn'
-      : `${currentTurnPlayer?.playerName ?? 'Player'} is playing`;
-  const turnNextStep = game.phase === 'Setup'
-    ? `${game.setupRound === 'SecondPlacement' ? 'Second' : 'First'} setup round`
-    : wardenFlowActive
-      ? 'Resolve the Warden'
-      : game.hasRolledThisTurn
-        ? `Dice result ${game.lastDiceRoll}`
-        : 'Roll to unlock actions';
-  const primaryButtonLabel = game.hasRolledThisTurn ? `Rolled ${game.lastDiceRoll}` : 'Roll Dice';
+  const { actionsUnlocked, currentTurnPlayer, isMyTurn, me, wardenFlowActive } = getTurnContext(game, playerId);
+  const winner = game.players.find((player) => player.playerId === game.winnerPlayerId);
+  const isSetup = game.phase === 'Setup';
+  const isFinished = game.status === 'Finished';
+  const setupPiece = game.setupStep === 'PlaceTrail' ? 'Trail' : 'Camp';
+  const setupRound = game.setupRound === 'SecondPlacement' ? 'Round 2' : 'Round 1';
+  const context = getTurnPanelContext({
+    currentTurnPlayerName: currentTurnPlayer?.playerName ?? 'Player',
+    game,
+    isFinished,
+    isMyTurn,
+    setupPiece,
+    setupRound,
+    wardenFlowActive,
+    winnerName: winner?.playerName ?? 'Player'
+  });
 
   if (!me) {
     return null;
   }
 
+  if (directBuildSelection) {
+    return (
+      <DirectBuildConfirmation
+        me={me}
+        pendingAction={pendingAction}
+        selection={directBuildSelection}
+        onCancel={onCancelDirectBuild}
+        onConfirm={onConfirmDirectBuild}
+      />
+    );
+  }
+
   return (
-    <section className="game-side-card turn-card right-status-card">
-      <div className="panel-heading">
-        <h2>Turn</h2>
-        <Clock3 size={16} />
-      </div>
+    <section className="game-side-card turn-card right-status-card context-action-panel">
+      <span className="context-panel-label">{context.phaseLabel}</span>
+      <ContextStateIcon kind={context.visual} value={context.visual === 'after-roll' ? null : game.lastDiceRoll} />
       <div className="turn-focus">
-        <span>{game.phase === 'Setup' ? 'Setup phase' : `Turn ${game.turnNumber}`}</span>
-        <strong>{turnPrimaryText}</strong>
-        <p>{turnNextStep}</p>
+        <strong>{context.primaryInstruction}</strong>
+        <p>{context.helperText}</p>
       </div>
-      <div className="turn-mini-grid compact-turn-grid">
-        <span>
-          <b>{game.phase === 'Setup' ? (game.setupStep === 'PlaceTrail' ? 'Trail' : 'Camp') : game.hasRolledThisTurn ? game.lastDiceRoll ?? '-' : '-'}</b>
-          {game.phase === 'Setup' ? 'next piece' : 'dice'}
-        </span>
-        <span>
-          <b>{me.totalVictoryPoints}</b>
-          your VP
-        </span>
-      </div>
-      <div className="status-list compact-status-list">
-        {game.phase === 'NormalTurn' ? (
-          <span>{developmentLockReason ?? 'Actions are available.'}</span>
-        ) : null}
-      </div>
+      {context.details.length > 0 ? (
+        <div className="context-status-chips" aria-label="Current action details">
+          {context.details.map((detail) => (
+            <ContextStatusIcon key={detail.label} label={detail.label} type={getContextDetailType(detail.label)} value={detail.value} />
+          ))}
+        </div>
+      ) : null}
+      {!isSetup && !isFinished && !game.activeDevelopmentCardEffect && context.secondaryText ? (
+        <p className="context-help-note">{context.secondaryText}</p>
+      ) : null}
       {game.activeDevelopmentCardEffect ? (
         <div className="context-effect-row">
           <Sparkles size={15} />
@@ -147,42 +173,179 @@ export function TurnStatusPanel({
           </div>
           <button
             type="button"
-            disabled={!actionsUnlocked || !!pendingAction}
+            disabled={!isMyTurn || !!pendingAction}
             onClick={() => void onCancelActiveDevelopmentCard(game.roomCode)}
           >
             Cancel
           </button>
         </div>
       ) : null}
-      {game.phase === 'NormalTurn' ? (
-        <button className="primary-button full-action" type="button" disabled={!isMyTurn || game.hasRolledThisTurn || !!pendingAction} onClick={() => void onRollDice(game.roomCode)}>
-          {primaryButtonLabel}
-        </button>
+      {!isFinished && game.phase === 'NormalTurn' && !game.hasRolledThisTurn && !game.activeDevelopmentCardEffect ? (
+        <IconActionButton
+          asset="RollDice"
+          className="primary-button full-action"
+          type="button"
+          disabled={!isMyTurn || wardenFlowActive || !!game.activeDevelopmentCardEffect || !!pendingAction}
+          label="Roll Dice"
+          title={game.activeDevelopmentCardEffect ? 'Resolve the current Development Card action first.' : undefined}
+          onClick={() => void onRollDice(game.roomCode)}
+        />
       ) : null}
-      {game.phase === 'NormalTurn' ? (
-        <button className="secondary-button full-action" type="button" disabled={!actionsUnlocked || !!pendingAction} onClick={() => void onEndTurn(game.roomCode)}>
-          End Turn
-        </button>
+      {!isFinished && game.phase === 'NormalTurn' && game.hasRolledThisTurn && !game.activeDevelopmentCardEffect ? (
+        <IconActionButton asset="EndTurn" className="secondary-button full-action" type="button" disabled={!actionsUnlocked || !!pendingAction} label="End Turn" onClick={() => void onEndTurn(game.roomCode)} />
+      ) : null}
+      {showDirectBuildHint ? (
+        <div className="direct-build-hint" role="status">
+          <div className="direct-build-hint-pieces" aria-hidden="true">
+            <PieceAsset decorative type="Trail" />
+            <PieceAsset decorative type="Camp" />
+            <PieceAsset decorative type="Stronghold" />
+          </div>
+          <p><strong>Build on the island</strong><span>Select a highlighted edge, intersection, or one of your Camps.</span></p>
+          <button aria-label="Dismiss direct building hint" type="button" onClick={onDismissDirectBuildHint}>
+            <ActionIcon decorative size="xs" type="Close" />
+          </button>
+        </div>
+      ) : null}
+      {isFinished ? (
+        <div className="final-score-list">
+          {game.players
+            .slice()
+            .sort((left, right) => right.totalVictoryPoints - left.totalVictoryPoints)
+            .map((player) => (
+              <span key={player.playerId}>
+                <strong>{player.playerName}</strong>
+                <ContextStatusIcon label="Victory Points" type="score" value={String(player.totalVictoryPoints)} />
+              </span>
+            ))}
+        </div>
       ) : null}
     </section>
   );
 }
 
+function DirectBuildConfirmation({
+  me,
+  pendingAction,
+  selection,
+  onCancel,
+  onConfirm
+}: {
+  me: PlayerGameState;
+  pendingAction: string | null;
+  selection: DirectBuildSelection;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const pieceType: DirectBuildType = selection.type;
+  const pieceSupply = getDirectBuildPieceSupply(me, pieceType);
+
+  return (
+    <section aria-live="polite" className="game-side-card turn-card right-status-card context-action-panel direct-build-confirmation">
+      <span className="context-panel-label">Confirm construction</span>
+      <div className="direct-build-piece-preview">
+        <PieceAsset decorative type={pieceType} />
+      </div>
+      <div className="turn-focus">
+        <span>Selected on the island</span>
+        <strong>{directBuildLabels[pieceType].action}</strong>
+        <p>{pieceType === 'Stronghold' ? 'Upgrade this Camp. The Camp piece returns to your supply.' : 'Spend the shown supplies and place this piece.'}</p>
+      </div>
+      <div className="direct-build-summary">
+        <ResourceCost cost={directBuildCosts[pieceType]} />
+        <PieceCount remaining={pieceSupply.remaining} total={pieceSupply.total} type={pieceType} />
+      </div>
+      <div className="direct-build-confirm-actions">
+        <IconActionButton
+          asset="Build"
+          className="primary-button full-action"
+          disabled={!!pendingAction}
+          label={pendingAction ? 'Building...' : 'Confirm Build'}
+          type="button"
+          onClick={onConfirm}
+        />
+        <button className="secondary-button full-action" disabled={!!pendingAction} type="button" onClick={onCancel}>
+          <X aria-hidden="true" size={17} />
+          Cancel
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function getDirectBuildPieceSupply(me: PlayerGameState, type: DirectBuildType) {
+  if (type === 'Trail') return { remaining: me.remainingTrails, total: me.totalTrails };
+  if (type === 'Camp') return { remaining: me.remainingCamps, total: me.totalCamps };
+  return { remaining: me.remainingStrongholds, total: me.totalStrongholds };
+}
+
+function getContextDetailType(label: string): 'player' | 'dice' | 'piece' | 'progress' | 'score' {
+  if (label === 'Active player' || label === 'Winner') return 'player';
+  if (label === 'Dice') return 'dice';
+  if (label === 'Step') return 'piece';
+  if (label === 'Progress' || label === 'State') return 'progress';
+  return 'score';
+}
+
 export function BottomActionTray({
   game,
   playerId,
+  activeDrawer,
   pendingAction,
+  onDrawerChange,
   onBuyDevelopmentCard,
   onTradeWithBank,
+  onCreateTradeOffer,
+  onAcceptTradeOffer,
+  onRejectTradeOffer,
+  onCancelTradeOffer,
   onPlayYearOfPlenty,
   onPlayMonopoly,
   onPlayKnight,
   onStartRoadBuilding
 }: BottomActionTrayProps) {
-  const [activeDrawer, setActiveDrawer] = useState<UtilityDrawerId | null>(null);
   const { actionsUnlocked, developmentLockReason, isMyTurn, me } = getTurnContext(game, playerId);
-  const activeDrawerDetails = activeDrawer ? utilityActions.find((action) => action.id === activeDrawer) ?? null : null;
-  const ActiveIcon = activeDrawerDetails?.icon;
+  const visibleActionStates = useMemo(
+    () => me ? getVisibleCommandDockActions(game, me, playerId, actionsUnlocked) : [],
+    [actionsUnlocked, game, me, playerId]
+  );
+  const visibleActions = visibleActionStates
+    .map((state) => {
+      const action = utilityActions.find((utilityAction) => utilityAction.id === state.id);
+      return action ? { ...action, disabledReason: state.disabledReason } : null;
+    })
+    .filter((action): action is { id: CommandDockActionId; label: string; asset: ActionAssetType; disabledReason: string | null } => !!action);
+  const activeDrawerDetails = activeDrawer === 'details'
+    ? { id: 'details' as const, label: 'Details', asset: 'MatchDetails' as const }
+    : activeDrawer
+      ? utilityActions.find((action) => action.id === activeDrawer) ?? null
+      : null;
+
+  useEffect(() => {
+    if (!activeDrawer) {
+      return;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onDrawerChange(null);
+      }
+    };
+
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [activeDrawer, onDrawerChange]);
+
+  useEffect(() => {
+    if (!activeDrawer || activeDrawer === 'details') {
+      return;
+    }
+
+    const activeState = visibleActionStates.find((action) => action.id === activeDrawer);
+    if (!activeState || activeState.disabledReason) {
+      onDrawerChange(null);
+    }
+  }, [activeDrawer, onDrawerChange, visibleActionStates]);
 
   if (!me) {
     return null;
@@ -190,56 +353,95 @@ export function BottomActionTray({
 
   return (
     <>
-      <nav className="bottom-action-tray utility-action-bar" aria-label="Player utilities">
-        {utilityActions.map((action) => {
-          const Icon = action.icon;
-          const isOpen = activeDrawer === action.id;
-          const summary = getUtilitySummary(action.id, game, me);
+      <section className="bottom-action-tray utility-action-bar command-dock" aria-label="Player command dock" data-phase={game.phase.toLowerCase()}>
+        <div className="dock-resources" aria-label="Your supplies">
+          {resources.map((resource) => {
+            const quantity = me.supplies[resource] ?? 0;
 
-          return (
-            <button
-              aria-label={`${action.label}: ${summary}`}
-              aria-expanded={isOpen}
-              className="utility-action-button"
-              key={action.id}
-              type="button"
-              onClick={() => setActiveDrawer((current) => current === action.id ? null : action.id)}
-            >
-              <Icon size={17} />
-              <strong>{action.label}</strong>
-              <span>{summary}</span>
-            </button>
-          );
-        })}
-      </nav>
+            return (
+              <ResourceStripItem
+                amount={quantity}
+                className={`dock-resource dock-resource-${resource.toLowerCase()}`}
+                key={resource}
+                type={resource}
+              />
+            );
+          })}
+        </div>
+        {game.phase === 'Setup' ? (
+          <div className="setup-dock-progress" aria-label={`Setup progress: ${Math.min(me.campsBuilt, 2)} of 2 Camps and ${Math.min(me.trailsBuilt, 2)} of 2 Trails placed`}>
+            <span className="setup-progress-label">Your setup</span>
+            <span className="setup-progress-item">
+              <PieceAsset decorative type="Camp" />
+              <b>Camp {Math.min(me.campsBuilt, 2)}/2</b>
+            </span>
+            <span className="setup-progress-item">
+              <PieceAsset decorative type="Trail" />
+              <b>Trail {Math.min(me.trailsBuilt, 2)}/2</b>
+            </span>
+          </div>
+        ) : null}
+        <nav className="dock-actions" aria-label="Secondary game systems">
+          {visibleActions.map((action) => {
+            const isOpen = activeDrawer === action.id;
+            const summary = getUtilitySummary(action.id, game, me);
+            const disabledReason = action.disabledReason;
+            const accessibleLabel = disabledReason ? `${action.label}: ${disabledReason}` : action.label;
 
-      {activeDrawerDetails && ActiveIcon ? (
+            return (
+              <button
+                disabled={!!disabledReason}
+                aria-disabled={!!disabledReason}
+                aria-label={accessibleLabel}
+                aria-expanded={isOpen}
+                className="utility-action-button"
+                data-available={!disabledReason}
+                key={action.id}
+                title={disabledReason ?? summary}
+                type="button"
+                onClick={() => {
+                  if (disabledReason) {
+                    return;
+                  }
+
+                  onDrawerChange(activeDrawer === action.id ? null : action.id);
+                }}
+              >
+                <ActionIcon type={action.asset} />
+                <strong>{action.label}</strong>
+                {disabledReason ? <span className="sr-only">{disabledReason}</span> : null}
+              </button>
+            );
+          })}
+        </nav>
+      </section>
+
+      {activeDrawerDetails ? (
         <div className="utility-drawer-overlay" role="presentation">
           <button
             aria-label="Close utility panel"
             className="utility-drawer-backdrop"
             type="button"
-            onClick={() => setActiveDrawer(null)}
+            onClick={() => onDrawerChange(null)}
           />
           <section aria-label={`${activeDrawerDetails.label} panel`} aria-modal="true" className="utility-drawer-panel" role="dialog">
             <header className="utility-drawer-header">
               <div className="utility-drawer-title">
                 <span>
-                  <ActiveIcon size={17} />
+                  <ActionIcon type={activeDrawerDetails.asset} />
                 </span>
                 <div>
                   <p className="eyebrow">Utility Drawer</p>
                   <h2>{activeDrawerDetails.label}</h2>
                 </div>
               </div>
-              <button className="utility-drawer-close" type="button" onClick={() => setActiveDrawer(null)}>
-                <X size={17} />
+              <button className="utility-drawer-close" type="button" onClick={() => onDrawerChange(null)}>
+                <ActionIcon type="Close" />
                 <span className="sr-only">Close</span>
               </button>
             </header>
 
             <div className="utility-drawer-body">
-              {activeDrawer === 'supplies' ? <SuppliesPanel me={me} /> : null}
               {activeDrawer === 'trade' ? (
                 <BankTradePanel
                   actionsUnlocked={actionsUnlocked}
@@ -249,6 +451,10 @@ export function BottomActionTray({
                   pendingAction={pendingAction}
                   surface="tray"
                   onTradeWithBank={onTradeWithBank}
+                  onCreateTradeOffer={onCreateTradeOffer}
+                  onAcceptTradeOffer={onAcceptTradeOffer}
+                  onRejectTradeOffer={onRejectTradeOffer}
+                  onCancelTradeOffer={onCancelTradeOffer}
                 />
               ) : null}
               {activeDrawer === 'cards' ? (
@@ -266,6 +472,7 @@ export function BottomActionTray({
                 />
               ) : null}
               {activeDrawer === 'log' ? <GameLogPanel game={game} /> : null}
+              {activeDrawer === 'details' ? <MatchDetailsPanel game={game} me={me} /> : null}
             </div>
           </section>
         </div>
@@ -275,11 +482,12 @@ export function BottomActionTray({
 }
 
 function getUtilitySummary(id: UtilityDrawerId, game: GameState, me: PlayerGameState) {
-  if (id === 'supplies') {
-    return `${me.supplyCount} total`;
-  }
-
   if (id === 'trade') {
+    const pendingOffers = game.tradeOffers.filter((offer) => offer.status === 'Pending').length;
+    if (pendingOffers > 0) {
+      return `${pendingOffers} offer${pendingOffers === 1 ? '' : 's'}`;
+    }
+
     const bestRate = resources.reduce((best, resource) => {
       const rate = me.tradeRates.find((tradeRate) => tradeRate.resource === resource)?.rate ?? 4;
       return Math.min(best, rate);
@@ -290,6 +498,10 @@ function getUtilitySummary(id: UtilityDrawerId, game: GameState, me: PlayerGameS
 
   if (id === 'cards') {
     return `${me.developmentCardCount} held`;
+  }
+
+  if (id === 'details') {
+    return `${game.players.length} players`;
   }
 
   const latestLog = [...game.log].reverse()[0];
@@ -305,11 +517,12 @@ function SuppliesPanel({ me }: { me: PlayerGameState }) {
       </div>
       <div className="supply-grid">
         {resources.map((resource) => (
-          <article className={`supply-card supply-${resource.toLowerCase()}`} key={resource}>
-            <span className="resource-symbol">{resourceSymbols[resource]}</span>
-            <span>{resource}</span>
-            <strong>{me.supplies[resource] ?? 0}</strong>
-          </article>
+          <ResourceStripItem
+            amount={me.supplies[resource] ?? 0}
+            className={`supply-card supply-${resource.toLowerCase()}`}
+            key={resource}
+            type={resource}
+          />
         ))}
       </div>
     </section>
@@ -317,8 +530,8 @@ function SuppliesPanel({ me }: { me: PlayerGameState }) {
 }
 
 function DevelopmentCardsPanel({
-  actionsUnlocked,
-  developmentLockReason,
+  actionsUnlocked: _actionsUnlocked,
+  developmentLockReason: _developmentLockReason,
   game,
   pendingAction,
   playerId,
@@ -333,23 +546,24 @@ function DevelopmentCardsPanel({
   const [yearPickTwo, setYearPickTwo] = useState<ResourceType>('Grain');
   const [monopolyResource, setMonopolyResource] = useState<ResourceType>('Wood');
 
-  const canAffordDevelopmentCard = useMemo(() => {
-    if (!me) {
-      return false;
-    }
-
-    return resources.every((resource) => (me.supplies[resource] ?? 0) >= (developmentCardCost[resource] ?? 0));
-  }, [me]);
-  const buyCardReason = developmentLockReason
-    ?? (game.developmentDeckCount === 0
-      ? 'The Development Card deck is empty.'
-      : !canAffordDevelopmentCard
-        ? 'Need 1 Wool + 1 Grain + 1 Stone.'
-        : null);
-
   if (!me) {
     return null;
   }
+
+  const availability = getDevelopmentCardAvailability(game, me, playerId, pendingAction);
+  const missingPurchaseText = formatMissingDevelopmentCardResources(availability.missingPurchaseResources);
+
+  const buyCard = async () => {
+    if (!availability.canBuyCard) {
+      return;
+    }
+
+    try {
+      await onBuyDevelopmentCard(game.roomCode);
+    } catch {
+      // The shared error surface explains the authoritative rejection.
+    }
+  };
 
   if (game.phase === 'Setup') {
     return (
@@ -377,30 +591,43 @@ function DevelopmentCardsPanel({
         <button
           className="primary-button"
           type="button"
-          disabled={!actionsUnlocked || !canAffordDevelopmentCard || game.developmentDeckCount === 0 || !!pendingAction}
-          onClick={() => void onBuyDevelopmentCard(game.roomCode)}
+          disabled={!availability.canBuyCard}
+          title={availability.buyDisabledReason ?? undefined}
+          onClick={() => void buyCard()}
         >
           Buy Card
         </button>
       </div>
       <p className="cost-caption">
-        {buyCardReason ?? 'Cost: 1 Wool + 1 Grain + 1 Stone'}
+        {availability.buyDisabledReason ?? <><span>Cost</span> <ResourceCost compact cost={developmentCardCost} /></>}
       </p>
+      <div className="development-cost-grid" aria-label="Development Card purchase cost">
+        {(['Wool', 'Grain', 'Stone'] as ResourceType[]).map((resource) => (
+          <span
+            aria-label={`${resource}: owned ${me.supplies[resource] ?? 0}, required ${developmentCardCost[resource] ?? 0}`}
+            data-affordable={(me.supplies[resource] ?? 0) >= (developmentCardCost[resource] ?? 0)}
+            key={resource}
+            title={resource}
+          >
+            <b><ResourceIcon decorative size="md" type={resource} /> <span>{developmentCardCost[resource] ?? 0}</span></b>
+            <small>owned {me.supplies[resource] ?? 0}</small>
+            <span className="sr-only">{resource}</span>
+          </span>
+        ))}
+      </div>
+      {missingPurchaseText ? <p className="development-missing-list">{missingPurchaseText}</p> : null}
 
       <div className="development-card-list">
         {me.developmentCards.length === 0 ? (
           <p className="empty-note">Your development cards will appear here.</p>
         ) : (
           me.developmentCards.map((card) => (
-            <DevelopmentCardItem
-              actionsUnlocked={actionsUnlocked}
+          <DevelopmentCardItem
+              availability={availability.playableCards.find((candidate) => candidate.cardId === card.cardId)!}
               card={card}
               game={game}
-              hasPlayedDevelopmentCardThisTurn={me.hasPlayedDevelopmentCardThisTurn}
               key={card.cardId}
-              lockReason={developmentLockReason}
               monopolyResource={monopolyResource}
-              pendingAction={pendingAction}
               setMonopolyResource={setMonopolyResource}
               setYearPickOne={setYearPickOne}
               setYearPickTwo={setYearPickTwo}
@@ -431,10 +658,107 @@ function GameLogPanel({ game }: { game: GameState }) {
         {recentLog.map((entry) => (
           <li key={entry.sequence}>
             <span>{entry.sequence}</span>
-            {entry.message}
+            <AssetLogMessage message={entry.message} />
           </li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+function AssetLogMessage({ message }: { message: string }) {
+  const parts = message.split(/\b(Wood|Clay|Wool|Grain|Stone)\b/g);
+  const eventIcon = getLogEventIcon(message);
+
+  return (
+    <span className="asset-log-message" aria-label={message}>
+      <span aria-hidden="true" className="asset-log-event">{eventIcon}</span>
+      {parts.map((part, index) => resources.includes(part as ResourceType) ? (
+        <span aria-hidden="true" className="asset-log-resource" key={`${part}-${index}`}>
+          <ResourceIcon decorative size="xs" type={part as ResourceType} />
+          <span className="sr-only">{part}</span>
+        </span>
+      ) : <span aria-hidden="true" key={`text-${index}`}>{part}</span>)}
+    </span>
+  );
+}
+
+function getLogEventIcon(message: string) {
+  if (/\bCamp\b/i.test(message)) return <PieceAsset decorative type="Camp" />;
+  if (/\bStronghold\b/i.test(message)) return <PieceAsset decorative type="Stronghold" />;
+  if (/\bTrail\b/i.test(message)) return <PieceAsset decorative type="Trail" />;
+  if (/\bWarden\b/i.test(message)) return <ActionIcon decorative size="xs" type="MoveWarden" />;
+  if (/\bKnight\b|Development Card/i.test(message)) return <ActionIcon decorative size="xs" type="Cards" />;
+  if (/\btrade|offer\b/i.test(message)) return <ActionIcon decorative size="xs" type="Trade" />;
+  if (/\broll|dice\b/i.test(message)) return <ActionIcon decorative size="xs" type="RollDice" />;
+  if (/\bSupply|supplies\b/i.test(message)) return <ActionIcon decorative size="xs" type="Supplies" />;
+  return <ActionIcon decorative size="xs" type="GameLog" />;
+}
+
+function MatchDetailsPanel({ game, me }: { game: GameState; me: PlayerGameState }) {
+  const currentPlayer = game.players.find((player) => player.playerId === game.currentPlayerId);
+  const setupPlayer = game.players.find((player) => player.playerId === game.currentSetupPlayerId);
+  const awardSummary = [
+    game.largestArmyPlayerId
+      ? `Largest Army: ${game.players.find((player) => player.playerId === game.largestArmyPlayerId)?.playerName ?? 'Claimed'} (${game.largestArmyKnightCount})`
+      : 'Largest Army: unclaimed',
+    game.longestTrailPlayerId
+      ? `Longest Trail: ${game.players.find((player) => player.playerId === game.longestTrailPlayerId)?.playerName ?? 'Claimed'} (${game.longestTrailLength})`
+      : 'Longest Trail: unclaimed'
+  ];
+
+  return (
+    <section className="tray-section match-details-panel">
+      <div className="panel-heading">
+        <h2>Match Details</h2>
+        <Info size={16} />
+      </div>
+      <div className="match-details-grid">
+        <span>Room</span>
+        <b>{game.roomCode}</b>
+        <span>Goal</span>
+        <b>{game.winningVictoryPoints} Victory Points</b>
+        <span>Phase</span>
+        <b>{game.phase === 'Setup' ? `Setup - ${game.setupRound === 'SecondPlacement' ? 'Round 2' : 'Round 1'}` : `Turn ${game.turnNumber}`}</b>
+        <span>Current</span>
+        <b>{game.phase === 'Setup' ? setupPlayer?.playerName ?? 'Player' : currentPlayer?.playerName ?? 'Player'}</b>
+        <span>Regions</span>
+        <b>{game.board.tiles.length}</b>
+        <span>Harbors</span>
+        <b>{game.board.harborSlots.length}</b>
+        <span>Deck</span>
+        <b>{game.developmentDeckCount} cards</b>
+      </div>
+      <div className="match-piece-details" aria-label="Your remaining construction pieces">
+        <PieceCount remaining={me.remainingTrails} total={me.totalTrails} type="Trail" />
+        <PieceCount remaining={me.remainingCamps} total={me.totalCamps} type="Camp" />
+        <PieceCount remaining={me.remainingStrongholds} total={me.totalStrongholds} type="Stronghold" />
+      </div>
+      <div className="direct-build-help">
+        <div aria-hidden="true">
+          <PieceAsset decorative type="Trail" />
+          <PieceAsset decorative type="Camp" />
+          <PieceAsset decorative type="Stronghold" />
+        </div>
+        <p><strong>Direct building</strong><span>After rolling, select an available edge or intersection on the island. Select one of your Camps to upgrade it.</span></p>
+      </div>
+      <div className="match-awards-list">
+        {awardSummary.map((award) => (
+          <span key={award}>
+            <Trophy size={14} />
+            {award}
+          </span>
+        ))}
+      </div>
+      <div className="match-player-order">
+        <strong>Player order</strong>
+        <ol>
+          {game.playerOrder.map((orderedPlayerId) => {
+            const player = game.players.find((candidate) => candidate.playerId === orderedPlayerId);
+            return player ? <li key={player.playerId}>{player.playerName}</li> : null;
+          })}
+        </ol>
+      </div>
     </section>
   );
 }
@@ -483,6 +807,18 @@ export function WardenPanel({
     && discardTotal === myDiscard.requiredAmount
     && resources.every((resource) => (discardSelection[resource] ?? 0) <= (me.supplies[resource] ?? 0));
   const isCurrentWardenPlayer = game.currentWardenPlayerId === playerId;
+  const wardenTitle = game.pendingWardenAction === 'Discarding'
+    ? 'Discard Supplies'
+    : game.pendingWardenAction === 'MoveWarden'
+      ? 'Move the Warden'
+      : 'Choose a victim';
+  const wardenHelper = game.pendingWardenAction === 'Discarding'
+    ? pendingDiscardPlayers
+      ? `Waiting on ${pendingDiscardPlayers}.`
+      : 'Players with large hands must discard before the Warden moves.'
+    : game.pendingWardenAction === 'MoveWarden'
+      ? 'Choose a highlighted region on the island.'
+      : 'Choose one eligible adjacent player to lose a random Supply.';
 
   useEffect(() => {
     setDiscardSelection(emptyDiscardSelection);
@@ -504,19 +840,11 @@ export function WardenPanel({
 
   return (
     <section className="game-side-card warden-flow-card">
-      <div className="panel-heading">
-        <h2>Warden</h2>
-        <Shield size={16} />
-      </div>
-      <div className="status-list">
-        <span>{currentWardenPlayer?.playerName ?? 'Current player'} resolves the Warden</span>
-        <span>
-          {game.pendingWardenAction === 'Discarding'
-            ? `Discarding: ${pendingDiscardPlayers || 'none'}`
-            : game.pendingWardenAction === 'MoveWarden'
-              ? 'Move the Warden to a new region'
-              : 'Choose an adjacent victim'}
-        </span>
+      <span className="context-panel-label">Warden</span>
+      <ContextStateIcon kind="warden" />
+      <div className="turn-focus">
+        <strong>{wardenTitle}</strong>
+        <p>{wardenHelper}</p>
       </div>
 
       {myDiscard ? (
@@ -524,9 +852,10 @@ export function WardenPanel({
           <strong>You must discard {myDiscard.requiredAmount} supplies</strong>
           <div className="warden-discard-grid">
             {resources.map((resource) => (
-              <label key={resource}>
-                <span>{resource}</span>
+              <label aria-label={`${resource} discard amount`} key={resource} title={resource}>
+                <span aria-hidden="true"><ResourceIcon decorative size="md" type={resource} /></span>
                 <input
+                  aria-label={`${resource} discard amount`}
                   min="0"
                   max={me.supplies[resource] ?? 0}
                   type="number"
@@ -543,7 +872,8 @@ export function WardenPanel({
             type="button"
             onClick={() => void onDiscardForWarden(game.roomCode, discardSelection)}
           >
-            Discard Supplies
+            <Check aria-hidden="true" size={18} />
+            Confirm Discard
           </button>
         </div>
       ) : game.pendingWardenAction === 'Discarding' ? (
@@ -567,10 +897,12 @@ export function WardenPanel({
               ))}
             </select>
             <button
+              className="primary-button full-action"
               type="button"
               disabled={!victimPlayerId || !!pendingAction}
               onClick={() => void onStealFromWardenVictim(game.roomCode, victimPlayerId)}
             >
+              <ActionIcon decorative type="MoveWarden" />
               Steal 1 Supply
             </button>
           </div>
@@ -583,12 +915,9 @@ export function WardenPanel({
 }
 
 interface DevelopmentCardItemProps {
+  availability: CardAvailability;
   card: PlayerDevelopmentCard;
   game: GameState;
-  actionsUnlocked: boolean;
-  hasPlayedDevelopmentCardThisTurn: boolean;
-  lockReason: string | null;
-  pendingAction: string | null;
   yearPickOne: ResourceType;
   yearPickTwo: ResourceType;
   monopolyResource: ResourceType;
@@ -602,12 +931,9 @@ interface DevelopmentCardItemProps {
 }
 
 function DevelopmentCardItem({
+  availability,
   card,
   game,
-  actionsUnlocked,
-  hasPlayedDevelopmentCardThisTurn,
-  lockReason,
-  pendingAction,
   yearPickOne,
   yearPickTwo,
   monopolyResource,
@@ -621,38 +947,51 @@ function DevelopmentCardItem({
 }: DevelopmentCardItemProps) {
   const type = card.type ?? 'VictoryPoint';
   const details = cardText[type];
-  const canPlay = actionsUnlocked
-    && card.status === 'Playable'
-    && !hasPlayedDevelopmentCardThisTurn
-    && !pendingAction
-    && type !== 'VictoryPoint';
-  const displayStatus = getCardDisplayStatus(card, type, canPlay, hasPlayedDevelopmentCardThisTurn, lockReason);
+  const canPlay = availability.canPlay;
+  const displayStatus = canPlay ? 'Playable' : availability.disabledReason ?? formatStatus(card.status);
+
+  const runCardAction = async (action: () => Promise<void>) => {
+    if (!canPlay) {
+      return;
+    }
+
+    try {
+      await action();
+    } catch {
+      setYearPickOne('Wood');
+      setYearPickTwo('Grain');
+      setMonopolyResource('Wood');
+      // The shared error surface explains authoritative stale-state failures.
+    }
+  };
 
   return (
     <article className={`development-card development-card-${type.toLowerCase()}`}>
+      <DevelopmentCardArtwork type={type} />
       <div className="development-card-top">
-        <span className="card-symbol">{details.icon}</span>
         <div>
           <strong>{details.title}</strong>
-          <span className="development-card-status">{displayStatus}</span>
+          <DevelopmentCardStatus available={canPlay} status={card.status} text={displayStatus} type={type} />
         </div>
       </div>
       <p>{details.description}</p>
 
-      {type === 'YearOfPlenty' ? (
+      {type === 'YearOfPlenty' && canPlay ? (
         <div className="card-controls two-selects">
           <ResourceSelect value={yearPickOne} onChange={setYearPickOne} />
           <ResourceSelect value={yearPickTwo} onChange={setYearPickTwo} />
-          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onPlayYearOfPlenty(game.roomCode, card.cardId, [yearPickOne, yearPickTwo])}>
+          <button type="button" onClick={() => void runCardAction(() => onPlayYearOfPlenty(game.roomCode, card.cardId, [yearPickOne, yearPickTwo]))}>
+            <ActionIcon decorative size="sm" type="Cards" />
             Play
           </button>
         </div>
       ) : null}
 
-      {type === 'Monopoly' ? (
+      {type === 'Monopoly' && canPlay ? (
         <div className="card-controls">
           <ResourceSelect value={monopolyResource} onChange={setMonopolyResource} />
-          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onPlayMonopoly(game.roomCode, card.cardId, monopolyResource)}>
+          <button type="button" onClick={() => void runCardAction(() => onPlayMonopoly(game.roomCode, card.cardId, monopolyResource))}>
+            <ActionIcon decorative size="sm" type="Cards" />
             Play
           </button>
         </div>
@@ -660,7 +999,8 @@ function DevelopmentCardItem({
 
       {type === 'Knight' ? (
         <div className="card-controls">
-          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onPlayKnight(game.roomCode, card.cardId, '', null)}>
+          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void runCardAction(() => onPlayKnight(game.roomCode, card.cardId, '', null))}>
+            <ActionIcon decorative size="sm" type="Cards" />
             Play
           </button>
         </div>
@@ -668,10 +1008,18 @@ function DevelopmentCardItem({
 
       {type === 'RoadBuilding' ? (
         <div className="card-controls">
-          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void onStartRoadBuilding(game.roomCode, card.cardId)}>
+          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void runCardAction(() => onStartRoadBuilding(game.roomCode, card.cardId))}>
+            <ActionIcon decorative size="sm" type="Cards" />
             Start
           </button>
         </div>
+      ) : null}
+
+      {!canPlay && type !== 'VictoryPoint' ? (
+        <p className="development-card-disabled-reason">{displayStatus}</p>
+      ) : null}
+      {type === 'VictoryPoint' ? (
+        <p className="development-card-passive">Passive - 1 hidden Victory Point</p>
       ) : null}
     </article>
   );
@@ -691,50 +1039,23 @@ function formatStatus(status: string) {
   return status.replace(/([A-Z])/g, ' $1').trim();
 }
 
-function getCardDisplayStatus(
-  card: PlayerDevelopmentCard,
-  type: DevelopmentCardType,
-  canPlay: boolean,
-  hasPlayedDevelopmentCardThisTurn: boolean,
-  lockReason: string | null
-) {
-  if (type === 'VictoryPoint') {
-    return 'Private VP';
-  }
-
-  if (card.status === 'BoughtThisTurn') {
-    return 'Bought this turn';
-  }
-
-  if (card.status === 'AlreadyPlayed') {
-    return 'Played';
-  }
-
-  if (canPlay) {
-    return 'Playable';
-  }
-
-  if (hasPlayedDevelopmentCardThisTurn) {
-    return 'Card limit used';
-  }
-
-  return lockReason ?? formatStatus(card.status);
-}
-
 function getTurnContext(game: GameState, playerId: string | null) {
   const me = game.players.find((player) => player.playerId === playerId) ?? null;
   const isNormalTurn = game.phase === 'NormalTurn';
   const isMyTurn = isNormalTurn && game.currentPlayerId === playerId && game.status === 'InProgress';
   const wardenFlowActive = game.pendingWardenAction !== 'None';
-  const actionsUnlocked = isMyTurn && game.hasRolledThisTurn && !wardenFlowActive;
+  const developmentEffectActive = !!game.activeDevelopmentCardEffect;
+  const actionsUnlocked = isMyTurn && game.hasRolledThisTurn && !wardenFlowActive && !developmentEffectActive;
   const developmentLockReason = game.phase === 'Setup'
     ? 'Development Cards unlock after setup.'
     : wardenFlowActive
       ? 'Resolve the Warden first.'
+      : developmentEffectActive
+        ? 'Resolve the current Development Card action first.'
       : !isMyTurn
         ? 'Waiting for your turn.'
         : !game.hasRolledThisTurn
-          ? 'Roll before buying or playing Development Cards.'
+          ? 'Roll to unlock building, trading, and card purchases. You may play one eligible Development Card before rolling.'
           : null;
   const setupPlayer = game.players.find((player) => player.playerId === game.currentSetupPlayerId);
   const currentTurnPlayer = game.players.find((player) => player.playerId === game.currentPlayerId);
@@ -748,4 +1069,31 @@ function getTurnContext(game: GameState, playerId: string | null) {
     setupPlayer,
     wardenFlowActive
   };
+}
+
+function DevelopmentCardStatus({
+  available,
+  status,
+  text,
+  type
+}: {
+  available: boolean;
+  status: string;
+  text: string;
+  type: DevelopmentCardType;
+}) {
+  const icon = available
+    ? <Check size={13} />
+    : type === 'VictoryPoint'
+      ? <Star size={13} />
+      : status === 'BoughtThisTurn'
+        ? <Clock3 size={13} />
+        : <LockKeyhole size={13} />;
+
+  return (
+    <span aria-label={text} className="development-card-status" data-available={available} title={text}>
+      <span aria-hidden="true">{icon}</span>
+      <span>{text}</span>
+    </span>
+  );
 }
