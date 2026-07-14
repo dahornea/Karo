@@ -35,12 +35,12 @@ The experimental 3D renderer remains available for future exploration, but it is
 
 ### Multiplayer Lobby
 
-- âœ… Implemented: private rooms with readable room codes
-- âœ… Implemented: create room and join room flows
-- âœ… Implemented: live player list updates through SignalR
-- âœ… Implemented: host detection and host-only game start
-- âœ… Implemented: disconnect handling, host reassignment, and empty room cleanup
-- â³ Planned: durable reconnect support across server restarts
+- ✅ Implemented: private rooms with readable room codes
+- ✅ Implemented: create room and join room flows
+- ✅ Implemented: live player list updates through SignalR
+- ✅ Implemented: host detection and host-only game start
+- ✅ Implemented: disconnect handling, host reassignment, and empty room cleanup
+- ⏳ Planned: durable reconnect support across server restarts
 
 ### Multiplayer Lifecycle
 
@@ -53,12 +53,12 @@ The experimental 3D renderer remains available for future exploration, but it is
 
 ### Board
 
-- âœ… Implemented: backend-generated shared 19-region hex board
-- âœ… Implemented: Wood, Clay, Wool, Grain, Stone, and Desert/None regions
-- âœ… Implemented: number tokens excluding 7
-- âœ… Implemented: deterministic board vertices and edges for Camps, Trails, Strongholds, and harbor access
-- âœ… Implemented: 9 fixed coastal harbor slots with randomized harbor types
-- âœ… Implemented: Warden starts on the Desert/None region and blocks production
+- ✅ Implemented: backend-generated shared 19-region hex board
+- ✅ Implemented: Wood, Clay, Wool, Grain, Stone, and Desert/None regions
+- ✅ Implemented: number tokens excluding 7
+- ✅ Implemented: deterministic board vertices and edges for Camps, Trails, Strongholds, and harbor access
+- ✅ Implemented: 9 fixed coastal harbor slots with randomized harbor types
+- ✅ Implemented: Warden starts on the Desert/None region and blocks production
 - [Implemented] Cohesive modern illustrated 2D board art with terrain patterns, calm water, physical number tokens, subtle build nodes, and compact harbor markers
 - [Implemented] Straight, centered 2D board presentation with a symmetrical water frame and stable SVG viewport
 - [Implemented] Seeded backend-authoritative generation with reproducible terrain, tokens, topology, and harbor assignments
@@ -66,52 +66,52 @@ The experimental 3D renderer remains available for future exploration, but it is
 
 ### Gameplay
 
-- âœ… Implemented: initial setup phase with forward then reverse placement order
-- âœ… Implemented: setup Camp placement, setup Trail placement, and one-empty-node Camp spacing
-- âœ… Implemented: second setup Camp grants starting supplies from adjacent productive regions
-- âœ… Implemented: normal turn roll gate
-- âœ… Implemented: server-authoritative 2d6 dice roll and supply production
-- âœ… Implemented: Camps produce 1 supply and Strongholds produce 2 supplies during production
-- âœ… Implemented: finite player construction-piece supplies: 15 Trails, 5 Camps, and 4 Strongholds
-- âœ… Implemented: paid normal-turn building actions for Trails, Camps, and Strongholds
-- âœ… Implemented: Stronghold upgrades return the upgraded Camp piece to the player supply
-- âœ… Implemented: Warden flow on 7, including discard, move, victim selection, and random steal
-- âœ… Implemented: Victory Point scoring and win detection
-- âœ… Implemented: Largest Army awards +2 VP after 3 played Knights and transfers only to a strict leader
-- âœ… Implemented: Longest Trail awards +2 VP for the longest continuous Trail of at least 5
-- âœ… Implemented: user-friendly validation messages for expected rule failures
-- â³ Planned: polished match-end screen
+- ✅ Implemented: initial setup phase with forward then reverse placement order
+- ✅ Implemented: setup Camp placement, setup Trail placement, and one-empty-node Camp spacing
+- ✅ Implemented: second setup Camp grants starting supplies from adjacent productive regions
+- ✅ Implemented: normal turn roll gate
+- ✅ Implemented: server-authoritative 2d6 dice roll and supply production
+- ✅ Implemented: Camps produce 1 supply and Strongholds produce 2 supplies during production
+- ✅ Implemented: finite player construction-piece supplies: 15 Trails, 5 Camps, and 4 Strongholds
+- ✅ Implemented: paid normal-turn building actions for Trails, Camps, and Strongholds
+- ✅ Implemented: Stronghold upgrades return the upgraded Camp piece to the player supply
+- ✅ Implemented: Warden flow on 7, including discard, move, victim selection, and random steal
+- ✅ Implemented: Victory Point scoring and win detection
+- ✅ Implemented: Largest Army awards +2 VP after 3 played Knights and transfers only to a strict leader
+- ✅ Implemented: Longest Trail awards +2 VP for the longest continuous Trail of at least 5
+- ✅ Implemented: user-friendly validation messages for expected rule failures
+- ⏳ Planned: polished match-end screen
 
 Trail connectivity note: paid Trails, Road Building Trails, and valid-edge previews use the same rule. A new Trail can connect through one of your own Camps or Strongholds, can extend from an empty node connected to one of your Trails, and cannot continue through an opponent's Camp or Stronghold.
 
 ### Development Cards
 
-- âœ… Implemented: finite server-side shuffled 25-card Development Card deck
-- âœ… Implemented: Development Card purchase cost and private hands
-- âœ… Implemented: deck exhaustion blocks card purchases
-- âœ… Implemented: same-turn play restriction for action cards
-- âœ… Implemented: one non-Victory Point Development Card per turn
-- âœ… Implemented: Knight starts the Warden move/steal flow without discard
-- âœ… Implemented: Year of Plenty adds exactly 2 selected supplies
-- âœ… Implemented: Monopoly transfers the selected supply from opponents
-- âœ… Implemented: Victory Point cards stay hidden and count toward win calculation
-- âœ… Implemented: Road Building can place up to 2 free Trails, consumes physical Trail pieces, and updates Longest Trail
+- ✅ Implemented: finite server-side shuffled 25-card Development Card deck
+- ✅ Implemented: Development Card purchase cost and private hands
+- ✅ Implemented: deck exhaustion blocks card purchases
+- ✅ Implemented: same-turn play restriction for action cards
+- ✅ Implemented: one non-Victory Point Development Card per turn
+- ✅ Implemented: Knight starts the Warden move/steal flow without discard
+- ✅ Implemented: Year of Plenty adds exactly 2 selected supplies
+- ✅ Implemented: Monopoly transfers the selected supply from opponents
+- ✅ Implemented: Victory Point cards stay hidden and count toward win calculation
+- ✅ Implemented: Road Building can place up to 2 free Trails, consumes physical Trail pieces, and updates Longest Trail
 
 ### Trading
 
-- âœ… Implemented: default 4:1 maritime/bank trade
-- âœ… Implemented: generic 3:1 harbor rate
-- âœ… Implemented: resource-specific 2:1 harbor rate
-- âœ… Implemented: harbor access through adjacent Camp or Stronghold vertices
-- âœ… Implemented: server-side trade validation and frontend disabled states
-- âœ… Implemented: player-to-player Supply trade offers between the current player and one target opponent
+- ✅ Implemented: default 4:1 maritime/bank trade
+- ✅ Implemented: generic 3:1 harbor rate
+- ✅ Implemented: resource-specific 2:1 harbor rate
+- ✅ Implemented: harbor access through adjacent Camp or Stronghold vertices
+- ✅ Implemented: server-side trade validation and frontend disabled states
+- ✅ Implemented: player-to-player Supply trade offers between the current player and one target opponent
 
 ### Match Experience
 
-- âœ… Implemented: compact top match header with room, phase, turn, and connection context
-- âœ… Implemented: scannable left player rail with identity, active status, VP, Supply count, Development Card count, and only relevant badges
-- âœ… Implemented: board-first match layout that keeps the 2D board as the main visual focus
-- âœ… Implemented: right-side current-action panel for setup, roll gate, mandatory actions, active card effects, and end turn
+- ✅ Implemented: compact top match header with room, phase, turn, and connection context
+- ✅ Implemented: scannable left player rail with identity, active status, VP, Supply count, Development Card count, and only relevant badges
+- ✅ Implemented: board-first match layout that keeps the 2D board as the main visual focus
+- ✅ Implemented: right-side current-action panel for setup, roll gate, mandatory actions, active card effects, and end turn
 - [Implemented] Direct contextual construction from legal board edges, open intersections, and owned Camps
 - [Implemented] State-aware player control area with a compact Supply strip plus Trade, Cards, and Game Log drawers
 - [Implemented] Centralized modern tabletop visual theme with teal/gold accents, off-white surfaces, calmer toasts, and consistent interactive states
@@ -125,10 +125,10 @@ Trail connectivity note: paid Trails, Road Building Trails, and valid-edge previ
 
 ### Debug Mode
 
-- âœ… Implemented: developer-only debug panel in Vite development mode
-- âœ… Implemented: backend debug action guard for the Development environment
-- âœ… Implemented: resource, dice, Warden, setup, turn, Development Card, win-check, and match restart debug controls
-- âœ… Implemented: board debug overlays for tile, node, harbor, coordinate, and Warden inspection
+- ✅ Implemented: developer-only debug panel in Vite development mode
+- ✅ Implemented: backend debug action guard for the Development environment
+- ✅ Implemented: resource, dice, Warden, setup, turn, Development Card, win-check, and match restart debug controls
+- ✅ Implemented: board debug overlays for tile, node, harbor, coordinate, and Warden inspection
 
 ### Board Generation Integrity
 
@@ -136,16 +136,16 @@ The supported map is the compact 19-region axial layout. Board generation is bac
 
 ### 2D / 3D Board Renderers
 
-- âœ… Implemented: 2D SVG board renderer as the stable default
-- ðŸ§ª Experimental: optional 3D renderer behind the `?board=3d` flag and board toggle
-- ðŸ§ª Experimental: 3D renderer is correctness-focused and intentionally not final art
-- âœ… Implemented: fallback to 2D if the 3D renderer fails
+- ✅ Implemented: 2D SVG board renderer as the stable default
+- 🧪 Experimental: optional 3D renderer behind the `?board=3d` flag and board toggle
+- 🧪 Experimental: 3D renderer is correctness-focused and intentionally not final art
+- ✅ Implemented: fallback to 2D if the 3D renderer fails
 
 ### Developer Experience
 
-- âœ… Implemented: Docker Compose local development stack
-- âœ… Implemented: containerized API and Vite client startup with one command
-- âœ… Implemented: Docker-friendly SignalR hub URL and configurable API CORS origins
+- ✅ Implemented: Docker Compose local development stack
+- ✅ Implemented: containerized API and Vite client startup with one command
+- ✅ Implemented: Docker-friendly SignalR hub URL and configurable API CORS origins
 
 ## Gameplay Summary
 
@@ -510,35 +510,35 @@ See [the multiplayer lifecycle audit](docs/multiplayer-lifecycle-audit.md) and [
 
 Board generation hardening is implemented: the supported map is the standard compact 19-region layout with deterministic seeds, validation before broadcast, and 500-seed fuzz coverage. Custom maps and expansions remain planned.
 
-### Phase 1 â€” Core Multiplayer Foundation
+### Phase 1 — Core Multiplayer Foundation
 
-- âœ… Lobby rooms
-- âœ… Live player sync
-- âœ… Host start
-- âœ… Shared board state
+- ✅ Lobby rooms
+- ✅ Live player sync
+- ✅ Host start
+- ✅ Shared board state
 
-### Phase 2 â€” Base Game Rules
+### Phase 2 — Base Game Rules
 
-- âœ… Setup phase
-- âœ… Turn flow
-- âœ… Dice production
-- âœ… Building validation and finite piece supplies
-- âœ… Maritime trading
-- âœ… Player-to-player Supply trading
-- âœ… Warden on 7
-- âœ… Development Cards
+- ✅ Setup phase
+- ✅ Turn flow
+- ✅ Dice production
+- ✅ Building validation and finite piece supplies
+- ✅ Maritime trading
+- ✅ Player-to-player Supply trading
+- ✅ Warden on 7
+- ✅ Development Cards
 
-### Phase 3 â€” Rule Completion
+### Phase 3 — Rule Completion
 
-- âœ… Largest Army after 3 played Knights
-- âœ… Longest Trail after 5 connected Trails
-- âœ… 10 Victory Point win validation
-- â³ Match end screen
+- ✅ Largest Army after 3 played Knights
+- ✅ Longest Trail after 5 connected Trails
+- ✅ 10 Victory Point win validation
+- ⏳ Match end screen
 
-### Phase 4 â€” UX / Polish
+### Phase 4 — UX / Polish
 
-- âœ… Progressive-disclosure match layout with compact rails, contextual actions, and on-demand drawers
-- âœ… UI/UX audit document for the match experience
+- ✅ Progressive-disclosure match layout with compact rails, contextual actions, and on-demand drawers
+- ✅ UI/UX audit document for the match experience
 - [Implemented] Modern illustrated tabletop visual identity and 2D board art pass
 - [Implemented] Premium tabletop theme layer with refined tokens, flatter panels, stronger hierarchy, and compact command strips
 - [Implemented] Responsive browser validation at 1366x768, 1440x900, 1536x864, and 1920x1080
@@ -553,27 +553,27 @@ Board generation hardening is implemented: the supported map is the standard com
 - [Partial] Camp, Stronghold, terrain, and Development Card illustrations are version-one replaceable art pending a future final illustration pass
 - [Experimental] Optional GLB model slots; the current 3D renderer still uses procedural fallbacks
 - [Implemented] Visual design audit document for theme and board artwork
-- ðŸŸ¡ Board interaction polish
-- âœ… User-facing validation and error feedback
-- â³ Animations and feedback
-- â³ Screenshots
+- 🟡 Board interaction polish
+- ✅ User-facing validation and error feedback
+- ⏳ Animations and feedback
+- ⏳ Screenshots
 
-### Phase 5 â€” Persistence / Portfolio Polish
+### Phase 5 — Persistence / Portfolio Polish
 
-- â³ SQL Server persistence if desired
-- â³ Match history
-- â³ Player stats
-- ðŸŸ¡ Tests: backend rule harness exists; broader automated test coverage planned
-- ðŸŸ¡ Architecture docs
+- ⏳ SQL Server persistence if desired
+- ⏳ Match history
+- ⏳ Player stats
+- 🟡 Tests: backend rule harness exists; broader automated test coverage planned
+- 🟡 Architecture docs
 
-### Phase 6 â€” Future Ideas
+### Phase 6 — Future Ideas
 
-- â³ Bots
-- â³ Spectator mode
-- â³ Reconnect support
-- â³ Replay/event history
-- â³ Custom Karo cards
-- â³ Expansions/custom modes
+- ⏳ Bots
+- ⏳ Spectator mode
+- ⏳ Reconnect support
+- ⏳ Replay/event history
+- ⏳ Custom Karo cards
+- ⏳ Expansions/custom modes
 
 ## Collaboration Guide
 
