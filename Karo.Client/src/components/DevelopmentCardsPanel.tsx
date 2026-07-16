@@ -1,18 +1,15 @@
-import { Anchor, Boxes, Check, Clock3, Hand, Info, LockKeyhole, ScrollText, Shield, Sparkles, Star, Trophy, X } from 'lucide-react';
+import { Anchor, Boxes, Check, Clock3, Hand, Info, LockKeyhole, ScrollText, Sparkles, Star, Trophy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { DevelopmentCardType, GameState, PlayerDevelopmentCard, PlayerGameState, ResourceType } from '../types/game';
 import { developmentCardCost, resources } from '../types/game';
 import type { CardAvailability } from '../utils/actionAvailability';
-import {
-  formatMissingDevelopmentCardResources,
-  getDevelopmentCardAvailability
-} from '../utils/actionAvailability';
+import { getDevelopmentCardAvailability } from '../utils/actionAvailability';
 import type { CommandDockActionId } from '../utils/commandDock';
 import { getVisibleCommandDockActions } from '../utils/commandDock';
 import { getTurnPanelContext } from '../utils/sidePanels';
 import { BankTradePanel } from './BankTradePanel';
 import type { ActionAssetType } from '../assets/game/gameAssets';
-import { ActionIcon, DevelopmentCardArtwork, PieceAsset, ResourceCost, ResourceIcon, ResourceStripItem } from './GameAsset';
+import { ActionIcon, DevelopmentCardArtwork, PieceAsset, ResourceCost, ResourceIcon, ResourceInlineSummary, ResourceStripItem } from './GameAsset';
 import { ContextStateIcon, ContextStatusIcon, IconActionButton, PieceCount } from './MatchIconUI';
 import type { DirectBuildSelection, DirectBuildType } from '../utils/directBuild';
 import { directBuildCosts, directBuildLabels } from '../utils/directBuild';
@@ -72,25 +69,27 @@ interface DevelopmentCardsPanelProps {
 const cardText: Record<DevelopmentCardType, { title: string; description: string }> = {
   Knight: {
     title: 'Knight',
-    description: 'Move the Warden and steal 1 random supply when possible.'
+    description: 'Move the Warden, then steal one random Supply when possible.'
   },
   RoadBuilding: {
     title: 'Road Building',
-    description: 'Prepare up to 2 free Trails once trail placement exists.'
+    description: 'Place up to two free Trails on legal highlighted edges.'
   },
   YearOfPlenty: {
     title: 'Year of Plenty',
-    description: 'Take any 2 supplies. You may choose the same supply twice.'
+    description: 'Gain any two Supplies, including two of the same type.'
   },
   Monopoly: {
     title: 'Monopoly',
-    description: 'Name a supply and collect all of it from opponents.'
+    description: 'Choose one Supply type and collect all matching Supplies from opponents.'
   },
   VictoryPoint: {
     title: 'Victory Point',
-    description: 'Hidden private point. Reveals when scoring the win.'
+    description: 'Adds one hidden Victory Point and is revealed when scoring the win.'
   }
 };
+
+const developmentPurchaseResources = ['Wool', 'Grain', 'Stone'] as const satisfies readonly ResourceType[];
 
 const utilityActions: Array<{ id: CommandDockActionId; label: string; asset: ActionAssetType }> = [
   { id: 'trade', label: 'Trade', asset: 'Trade' },
@@ -424,7 +423,13 @@ export function BottomActionTray({
             type="button"
             onClick={() => onDrawerChange(null)}
           />
-          <section aria-label={`${activeDrawerDetails.label} panel`} aria-modal="true" className="utility-drawer-panel" role="dialog">
+          <section
+            aria-label={`${activeDrawer === 'cards' ? 'Development Cards' : activeDrawerDetails.label} panel`}
+            aria-modal="true"
+            className="utility-drawer-panel"
+            data-drawer={activeDrawerDetails.id}
+            role="dialog"
+          >
             <header className="utility-drawer-header">
               <div className="utility-drawer-title">
                 <span>
@@ -432,7 +437,10 @@ export function BottomActionTray({
                 </span>
                 <div>
                   <p className="eyebrow">Utility Drawer</p>
-                  <h2>{activeDrawerDetails.label}</h2>
+                  <h2>{activeDrawer === 'cards' ? 'Development Cards' : activeDrawerDetails.label}</h2>
+                  {activeDrawer === 'cards' ? (
+                    <p className="utility-drawer-subtitle">Buy from the shared deck and manage your private hand.</p>
+                  ) : null}
                 </div>
               </div>
               <button className="utility-drawer-close" type="button" onClick={() => onDrawerChange(null)}>
@@ -551,7 +559,8 @@ function DevelopmentCardsPanel({
   }
 
   const availability = getDevelopmentCardAvailability(game, me, playerId, pendingAction);
-  const missingPurchaseText = formatMissingDevelopmentCardResources(availability.missingPurchaseResources);
+  const playableCount = availability.playableCards.filter((card) => card.canPlay).length;
+  const hiddenVictoryPointCount = me.developmentCards.filter((card) => card.type === 'VictoryPoint').length;
 
   const buyCard = async () => {
     if (!availability.canBuyCard) {
@@ -569,7 +578,7 @@ function DevelopmentCardsPanel({
     return (
       <section className="tray-section development-lock-card">
         <div className="panel-heading">
-          <h2>Development</h2>
+          <h2>Development Cards</h2>
           <Hand size={16} />
         </div>
         <p className="empty-note">Development Cards are disabled during setup.</p>
@@ -579,50 +588,77 @@ function DevelopmentCardsPanel({
 
   return (
     <section className="tray-section development-tray-section">
-      <div className="panel-heading">
-        <h2>Development</h2>
-        <Hand size={16} />
-      </div>
-      <div className="development-buy-row">
-        <div>
-          <strong>{game.developmentDeckCount}</strong>
-          <span>cards left</span>
-        </div>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={!availability.canBuyCard}
-          title={availability.buyDisabledReason ?? undefined}
-          onClick={() => void buyCard()}
-        >
-          Buy Card
-        </button>
-      </div>
-      <p className="cost-caption">
-        {availability.buyDisabledReason ?? <><span>Cost</span> <ResourceCost compact cost={developmentCardCost} /></>}
-      </p>
-      <div className="development-cost-grid" aria-label="Development Card purchase cost">
-        {(['Wool', 'Grain', 'Stone'] as ResourceType[]).map((resource) => (
-          <span
-            aria-label={`${resource}: owned ${me.supplies[resource] ?? 0}, required ${developmentCardCost[resource] ?? 0}`}
-            data-affordable={(me.supplies[resource] ?? 0) >= (developmentCardCost[resource] ?? 0)}
-            key={resource}
-            title={resource}
-          >
-            <b><ResourceIcon decorative size="md" type={resource} /> <span>{developmentCardCost[resource] ?? 0}</span></b>
-            <small>owned {me.supplies[resource] ?? 0}</small>
-            <span className="sr-only">{resource}</span>
+      <section aria-labelledby="development-purchase-title" className="development-purchase-panel">
+        <div className="development-purchase-heading">
+          <div>
+            <span className="development-section-kicker">Shared deck</span>
+            <h3 id="development-purchase-title">Purchase a card</h3>
+          </div>
+          <span className="development-deck-count" aria-label={`${game.developmentDeckCount} cards remain in the Development Card deck`}>
+            <b>{game.developmentDeckCount}</b>
+            <small>cards left</small>
           </span>
-        ))}
-      </div>
-      {missingPurchaseText ? <p className="development-missing-list">{missingPurchaseText}</p> : null}
+        </div>
 
-      <div className="development-card-list">
+        <div className="development-purchase-content">
+          <div className="development-purchase-cost">
+            <span>Cost</span>
+            <ResourceCost compact cost={developmentCardCost} />
+          </div>
+          <div className="development-purchase-owned" aria-label="Development Card cost compared with your owned Supplies">
+            {developmentPurchaseResources.map((resource) => {
+              const owned = me.supplies[resource] ?? 0;
+              const required = developmentCardCost[resource] ?? 0;
+
+              return (
+                <span
+                  aria-label={`${resource}: ${owned} owned, ${required} required`}
+                  data-affordable={owned >= required}
+                  key={resource}
+                >
+                  <ResourceIcon decorative size="sm" type={resource} />
+                  <span><b>{resource}</b><small>{owned} owned</small></span>
+                </span>
+              );
+            })}
+          </div>
+          <div className="development-purchase-action">
+            <p data-state={availability.canBuyCard ? 'ready' : 'locked'}>
+              {availability.canBuyCard ? <Check aria-hidden="true" size={15} /> : <LockKeyhole aria-hidden="true" size={15} />}
+              <span>{availability.buyDisabledReason ?? 'You can afford a card now.'}</span>
+            </p>
+            <button
+              className="primary-button development-buy-button"
+              type="button"
+              disabled={!availability.canBuyCard}
+              title={availability.buyDisabledReason ?? undefined}
+              onClick={() => void buyCard()}
+            >
+              <Sparkles aria-hidden="true" size={16} />
+              Buy Development Card
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="development-hand-heading">
+        <div>
+          <span className="development-section-kicker">Visible only to you</span>
+          <h3><Hand aria-hidden="true" size={17} /> Private hand</h3>
+        </div>
+        <div className="development-hand-stats" aria-label={`${me.developmentCards.length} cards held, ${playableCount} playable now, ${hiddenVictoryPointCount} hidden Victory Point cards`}>
+          <span><b>{me.developmentCards.length}</b> held</span>
+          <span data-tone="playable"><b>{playableCount}</b> playable</span>
+          {hiddenVictoryPointCount > 0 ? <span data-tone="private"><b>{hiddenVictoryPointCount}</b> hidden VP</span> : null}
+        </div>
+      </div>
+
+      <div aria-label="Your private Development Card hand" className="development-card-list">
         {me.developmentCards.length === 0 ? (
-          <p className="empty-note">Your development cards will appear here.</p>
+          <p className="empty-note development-hand-empty">Your Development Cards will appear here after purchase.</p>
         ) : (
           me.developmentCards.map((card) => (
-          <DevelopmentCardItem
+            <DevelopmentCardItem
               availability={availability.playableCards.find((candidate) => candidate.cardId === card.cardId)!}
               card={card}
               game={game}
@@ -948,7 +984,9 @@ function DevelopmentCardItem({
   const type = card.type ?? 'VictoryPoint';
   const details = cardText[type];
   const canPlay = availability.canPlay;
-  const displayStatus = canPlay ? 'Playable' : availability.disabledReason ?? formatStatus(card.status);
+  const presentation = getDevelopmentCardPresentation(availability, card, type);
+  const yearSelection = countSelectedResources([yearPickOne, yearPickTwo]);
+  const monopolySelection = countSelectedResources([monopolyResource]);
 
   const runCardAction = async (action: () => Promise<void>) => {
     if (!canPlay) {
@@ -966,77 +1004,158 @@ function DevelopmentCardItem({
   };
 
   return (
-    <article className={`development-card development-card-${type.toLowerCase()}`}>
-      <DevelopmentCardArtwork type={type} />
-      <div className="development-card-top">
-        <div>
-          <strong>{details.title}</strong>
-          <DevelopmentCardStatus available={canPlay} status={card.status} text={displayStatus} type={type} />
-        </div>
+    <article
+      className="development-card"
+      data-card-state={presentation.tone}
+      data-card-type={type}
+    >
+      <div className="development-card-artwork-frame">
+        <DevelopmentCardArtwork type={type} />
       </div>
-      <p>{details.description}</p>
+      <div className="development-card-body">
+        <header className="development-card-top">
+          <div>
+            <span className="development-card-eyebrow">{type === 'VictoryPoint' ? 'Private merit' : 'Action card'}</span>
+            <h4>{details.title}</h4>
+          </div>
+          <DevelopmentCardStatus text={presentation.label} tone={presentation.tone} />
+        </header>
+        <p className="development-card-description">{details.description}</p>
 
-      {type === 'YearOfPlenty' && canPlay ? (
-        <div className="card-controls two-selects">
-          <ResourceSelect value={yearPickOne} onChange={setYearPickOne} />
-          <ResourceSelect value={yearPickTwo} onChange={setYearPickTwo} />
-          <button type="button" onClick={() => void runCardAction(() => onPlayYearOfPlenty(game.roomCode, card.cardId, [yearPickOne, yearPickTwo]))}>
-            <ActionIcon decorative size="sm" type="Cards" />
-            Play
-          </button>
-        </div>
-      ) : null}
+        {type === 'YearOfPlenty' && canPlay ? (
+          <div className="development-card-interaction development-card-choice">
+            <div className="development-card-selectors">
+              <ResourceSelect label="First Supply" value={yearPickOne} onChange={setYearPickOne} />
+              <ResourceSelect label="Second Supply" value={yearPickTwo} onChange={setYearPickTwo} />
+            </div>
+            <div className="development-card-selection-summary">
+              <span>Gain</span>
+              <ResourceInlineSummary values={yearSelection} />
+            </div>
+            <button className="development-card-action" type="button" onClick={() => void runCardAction(() => onPlayYearOfPlenty(game.roomCode, card.cardId, [yearPickOne, yearPickTwo]))}>
+              <ActionIcon decorative size="sm" type="Cards" />
+              Play Year of Plenty
+            </button>
+          </div>
+        ) : null}
 
-      {type === 'Monopoly' && canPlay ? (
-        <div className="card-controls">
-          <ResourceSelect value={monopolyResource} onChange={setMonopolyResource} />
-          <button type="button" onClick={() => void runCardAction(() => onPlayMonopoly(game.roomCode, card.cardId, monopolyResource))}>
-            <ActionIcon decorative size="sm" type="Cards" />
-            Play
-          </button>
-        </div>
-      ) : null}
+        {type === 'Monopoly' && canPlay ? (
+          <div className="development-card-interaction development-card-choice">
+            <div className="development-card-selectors development-card-selectors-single">
+              <ResourceSelect label="Supply to collect" value={monopolyResource} onChange={setMonopolyResource} />
+            </div>
+            <div className="development-card-selection-summary">
+              <span>Collect</span>
+              <ResourceInlineSummary values={monopolySelection} />
+            </div>
+            <button className="development-card-action" type="button" onClick={() => void runCardAction(() => onPlayMonopoly(game.roomCode, card.cardId, monopolyResource))}>
+              <ActionIcon decorative size="sm" type="Cards" />
+              Play Monopoly
+            </button>
+          </div>
+        ) : null}
 
-      {type === 'Knight' ? (
-        <div className="card-controls">
-          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void runCardAction(() => onPlayKnight(game.roomCode, card.cardId, '', null))}>
-            <ActionIcon decorative size="sm" type="Cards" />
-            Play
-          </button>
-        </div>
-      ) : null}
+        {type === 'Knight' && canPlay ? (
+          <div className="development-card-interaction development-card-action-only">
+            <button className="development-card-action" type="button" onClick={() => void runCardAction(() => onPlayKnight(game.roomCode, card.cardId, '', null))}>
+              <ActionIcon decorative size="sm" type="Cards" />
+              Play Knight
+            </button>
+          </div>
+        ) : null}
 
-      {type === 'RoadBuilding' ? (
-        <div className="card-controls">
-          <button type="button" disabled={!canPlay} title={!canPlay ? displayStatus : undefined} onClick={() => void runCardAction(() => onStartRoadBuilding(game.roomCode, card.cardId))}>
-            <ActionIcon decorative size="sm" type="Cards" />
-            Start
-          </button>
-        </div>
-      ) : null}
+        {type === 'RoadBuilding' && canPlay ? (
+          <div className="development-card-interaction development-card-action-only">
+            <button className="development-card-action" type="button" onClick={() => void runCardAction(() => onStartRoadBuilding(game.roomCode, card.cardId))}>
+              <ActionIcon decorative size="sm" type="Cards" />
+              Start Trail Placement
+            </button>
+          </div>
+        ) : null}
 
-      {!canPlay && type !== 'VictoryPoint' ? (
-        <p className="development-card-disabled-reason">{displayStatus}</p>
-      ) : null}
-      {type === 'VictoryPoint' ? (
-        <p className="development-card-passive">Passive - 1 hidden Victory Point</p>
-      ) : null}
+        {!canPlay && type !== 'VictoryPoint' ? (
+          <div className="development-card-interaction development-card-locked">
+            <p className="development-card-disabled-reason"><LockKeyhole aria-hidden="true" size={14} /> {presentation.reason}</p>
+          </div>
+        ) : null}
+        {type === 'VictoryPoint' ? (
+          <div className="development-card-interaction development-card-passive">
+            <Star aria-hidden="true" size={17} />
+            <span><b>+1 hidden Victory Point</b><small>Passive and private until the win is scored.</small></span>
+          </div>
+        ) : null}
+      </div>
     </article>
   );
 }
 
-function ResourceSelect({ value, onChange }: { value: ResourceType; onChange: (resource: ResourceType) => void }) {
+function ResourceSelect({ label, value, onChange }: { label: string; value: ResourceType; onChange: (resource: ResourceType) => void }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value as ResourceType)}>
-      {resources.map((resource) => (
-        <option key={resource}>{resource}</option>
-      ))}
-    </select>
+    <label className="development-card-resource-select">
+      <span>{label}</span>
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as ResourceType)}>
+        {resources.map((resource) => (
+          <option key={resource}>{resource}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 
-function formatStatus(status: string) {
-  return status.replace(/([A-Z])/g, ' $1').trim();
+function countSelectedResources(selected: ResourceType[]) {
+  return selected.reduce<Partial<Record<ResourceType, number>>>((counts, resource) => {
+    counts[resource] = (counts[resource] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+type DevelopmentCardTone = 'playable' | 'purchased' | 'passive' | 'played' | 'locked';
+
+function getDevelopmentCardPresentation(
+  availability: CardAvailability,
+  card: PlayerDevelopmentCard,
+  type: DevelopmentCardType
+): { label: string; tone: DevelopmentCardTone; reason: string | null } {
+  if (type === 'VictoryPoint' || availability.isPassive) {
+    return { label: 'Hidden VP', tone: 'passive', reason: null };
+  }
+
+  if (availability.canPlay) {
+    return { label: 'Playable now', tone: 'playable', reason: null };
+  }
+
+  if (availability.boughtThisTurn || card.status === 'BoughtThisTurn') {
+    return { label: 'Bought this turn', tone: 'purchased', reason: 'Locked until your next turn.' };
+  }
+
+  if (card.isPlayed || card.status === 'AlreadyPlayed') {
+    return { label: 'Already played', tone: 'played', reason: 'This card has already been used.' };
+  }
+
+  const reason = availability.disabledReason ?? 'This card is not available right now.';
+  return {
+    label: getDevelopmentCardLockLabel(reason),
+    tone: 'locked',
+    reason: formatDevelopmentCardLockReason(reason)
+  };
+}
+
+function getDevelopmentCardLockLabel(reason: string) {
+  if (reason === 'Not your turn') return 'Waiting';
+  if (reason === 'Card limit used') return 'Turn limit';
+  if (reason === 'Resolve current action first') return 'Action pending';
+  if (reason === 'Unavailable during setup') return 'Setup locked';
+  if (reason === 'Match finished') return 'Match over';
+  return 'Unavailable';
+}
+
+function formatDevelopmentCardLockReason(reason: string) {
+  if (reason === 'Not your turn') return 'Playable only on your turn.';
+  if (reason === 'Card limit used') return 'You already played one action Development Card this turn.';
+  if (reason === 'Resolve current action first') return 'Finish the current board action first.';
+  if (reason === 'Unavailable during setup') return 'Development Cards are unavailable during setup.';
+  if (reason === 'Match finished') return 'The match is finished.';
+  return reason.endsWith('.') ? reason : `${reason}.`;
 }
 
 function getTurnContext(game: GameState, playerId: string | null) {
@@ -1072,26 +1191,22 @@ function getTurnContext(game: GameState, playerId: string | null) {
 }
 
 function DevelopmentCardStatus({
-  available,
-  status,
   text,
-  type
+  tone
 }: {
-  available: boolean;
-  status: string;
   text: string;
-  type: DevelopmentCardType;
+  tone: DevelopmentCardTone;
 }) {
-  const icon = available
+  const icon = tone === 'playable'
     ? <Check size={13} />
-    : type === 'VictoryPoint'
+    : tone === 'passive'
       ? <Star size={13} />
-      : status === 'BoughtThisTurn'
+      : tone === 'purchased'
         ? <Clock3 size={13} />
         : <LockKeyhole size={13} />;
 
   return (
-    <span aria-label={text} className="development-card-status" data-available={available} title={text}>
+    <span aria-label={text} className="development-card-status" data-tone={tone} title={text}>
       <span aria-hidden="true">{icon}</span>
       <span>{text}</span>
     </span>

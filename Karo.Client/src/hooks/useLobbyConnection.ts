@@ -85,6 +85,7 @@ export function useLobbyConnection() {
   }, [applyRecoveredSession]);
 
   useEffect(() => {
+    let disposed = false;
     const connection = new HubConnectionBuilder()
       .withUrl(signalRHubUrl)
       .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
@@ -128,20 +129,40 @@ export function useLobbyConnection() {
     });
     connection.onclose(() => setConnectionPhase('disconnected'));
 
-    connection
-      .start()
-      .then(async () => {
+    const startConnection = async () => {
+      try {
+        await connection.start();
+        if (disposed) {
+          await connection.stop();
+          return;
+        }
+
         setConnectionPhase('connected');
         setError(null);
         await restoreSession();
-      })
-      .catch(() => {
+      } catch {
+        if (disposed) {
+          return;
+        }
+
         setConnectionPhase('disconnected');
         setError(makeFriendlyGameError('Connection unavailable', 'Could not connect to the Karo server.'));
-      });
+      }
+    };
+
+    // Deferring startup lets React's development-only Strict Mode probe dispose
+    // its first effect before SignalR begins negotiating a throwaway connection.
+    const startTimer = window.setTimeout(() => void startConnection(), 0);
 
     return () => {
-      connection.stop().catch(() => undefined);
+      disposed = true;
+      window.clearTimeout(startTimer);
+      if (connectionRef.current === connection) {
+        connectionRef.current = null;
+      }
+      if (connection.state !== HubConnectionState.Disconnected) {
+        connection.stop().catch(() => undefined);
+      }
     };
   }, [applyGameState, restoreSession]);
 

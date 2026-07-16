@@ -23,6 +23,13 @@ const strongholdSource = readFileSync(resolve(root, 'assets/game/pieces/source/s
 const wardenSource = readFileSync(resolve(root, 'assets/game/pieces/source/warden.source.svg'), 'utf8');
 const resourceTypes = ['Wood', 'Clay', 'Wool', 'Grain', 'Stone'];
 const cardTypes = ['Knight', 'RoadBuilding', 'YearOfPlenty', 'Monopoly', 'VictoryPoint'];
+const cardSourceContracts = {
+  Knight: { fileName: 'knight', semanticIds: ['hero-warden', 'movement-path', 'stolen-supply'] },
+  RoadBuilding: { fileName: 'road-building', semanticIds: ['hero-trails', 'construction-mark'] },
+  YearOfPlenty: { fileName: 'year-of-plenty', semanticIds: ['hero-bounty', 'two-supplies'] },
+  Monopoly: { fileName: 'monopoly', semanticIds: ['hero-control', 'matching-supplies'] },
+  VictoryPoint: { fileName: 'victory-point', semanticIds: ['hero-prestige', 'hidden-score'] }
+};
 const pieceTypes = ['Trail', 'Camp', 'Stronghold', 'Warden'];
 const harborTypes = ['Generic', ...resourceTypes];
 let assertions = 0;
@@ -36,7 +43,18 @@ for (const resource of resourceTypes) {
 assert(mappingContains('terrainAssets', 'None'), 'Desert terrain mapping is missing.');
 assert(mappingContains('tileSymbolAssets', 'None'), 'Desert symbol mapping is missing.');
 
-for (const type of cardTypes) assert(mappingContains('cardAssets', type), `${type} card artwork is missing.`);
+for (const type of cardTypes) {
+  assert(mappingContains('cardAssets', type), `${type} card artwork is missing.`);
+
+  const contract = cardSourceContracts[type];
+  const cardSource = readFileSync(resolve(root, `assets/game/cards/source/${contract.fileName}.source.svg`), 'utf8');
+  assert(cardSource.includes('data-style="karo-card-v3"'), `${type} does not use the shared symbolic Development Card style.`);
+  assert(cardSource.includes('viewBox="0 0 480 300"'), `${type} must retain the shared landscape artwork frame.`);
+  assert(cardSource.includes('<title') && cardSource.includes('<desc'), `${type} source artwork needs an accessible title and description.`);
+  for (const semanticId of contract.semanticIds) {
+    assert(cardSource.includes(`id="${semanticId}"`), `${type} is missing the ${semanticId} mechanic-led illustration layer.`);
+  }
+}
 for (const type of pieceTypes) assert(mappingContains('pieceAssets', type), `${type} piece asset is missing.`);
 for (const type of harborTypes) assert(mappingContains('harborAssets', type), `${type} harbor asset is missing.`);
 
@@ -74,7 +92,12 @@ assert(board.includes("const isGeneric = slot.harborType === 'Generic'"), 'Only 
 assert(cardPanel.includes('<ResourceCost cost={directBuildCosts[pieceType]} />'), 'Direct build confirmation must render resource icons and values.');
 assert(cardPanel.includes('<ResourceStripItem'), 'The command dock and Supplies drawer must use the shared icon-first Supply strip.');
 assert(!cardPanel.includes('className="dock-resource-name"'), 'The command dock must not duplicate persistent Supply names.');
-assert(cardPanel.includes('<ResourceCost compact cost={developmentCardCost} />'), 'Development Card purchase cost must use shared resource assets.');
+assert(
+  cardPanel.includes('aria-labelledby="development-purchase-title"')
+    && cardPanel.includes('<ResourceCost compact cost={developmentCardCost} />')
+    && cardPanel.includes('aria-label={`${resource}: ${owned} owned, ${required} required`}'),
+  'Development Card purchase summary must use shared resource assets with an accessible group label.'
+);
 assert(tradePanel.includes('<ResourceInlineSummary values={selection} />'), 'Player trade summaries must use shared resource assets.');
 assert(tradePanel.includes('aria-label={`${title} ${resource}`}'), 'Player trade inputs must retain resource-specific accessible labels.');
 assert(debugPanel.includes('aria-label={`${resource}: ${targetPlayer?.supplies[resource] ?? 0}`}'), 'Debug resource controls must retain accessible resource labels.');

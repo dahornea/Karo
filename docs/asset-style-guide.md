@@ -37,9 +37,17 @@ The source art is intentionally stylized and non-photographic. Number tokens rem
 
 ## Development Cards
 
-Card illustrations use one landscape composition, dark outline language, and restrained warm palette. Card artwork supports recognition but never replaces the card name, effect summary, status, or accessible label. Hidden cards use the original Karo hex-pattern card back.
+Development Card artwork uses the `karo-card-v3` symbolic family: a shared 480 by 300 landscape frame, one dominant emblem, one mechanic cue, bold restrained outlines, and a limited card-specific palette. The set deliberately avoids miniature narrative scenes and decorative filler:
 
-Camp, Stronghold, terrain, and Development Card raster illustrations are version-one repository artwork. They are production-safe and replaceable through the manifest, but they are not claimed as final commissioned art. Resource symbols, action symbols, harbor symbols, and the Warden silhouette are the current refined iconography baseline.
+- Knight: a helmeted Warden crest, position path, and captured Supply token.
+- Year of Plenty: one harvest basket beneath two highlighted Supply medallions.
+- Road Building: exactly two connected timber Trail pieces and one construction mark.
+- Victory Point: a single gold prestige seal with a private-score lock.
+- Monopoly: matching Supply tokens converging into one controlled stack.
+
+Card artwork supports recognition but never replaces the card name, effect summary, status, or accessible label. Keep the hero symbol inside the central crop-safe band, preserve readable contrast at compact drawer sizes, and use `<title>` plus `<desc>` in every source SVG. Hidden cards use the original Karo hex-pattern card back.
+
+Camp, Stronghold, and terrain raster illustrations are version-one repository artwork. They are production-safe and replaceable through the manifest, but they are not claimed as final commissioned art. Development Cards, resource symbols, action symbols, harbor symbols, and the Warden silhouette are the current refined illustration and iconography baseline.
 
 ## Board integration
 

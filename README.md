@@ -8,9 +8,13 @@ Karo is an original portfolio project with its own naming, UI, assets, and imple
 
 ## Overview
 
-Karo is a browser-based multiplayer board game where players create private rooms, invite friends, place Camps and Trails, collect supplies, trade with the bank, harbors, and other players, use Development Cards, move the Warden, and compete for Victory Points.
+Karo is an original multiplayer strategy board game built around a shared hex-map island, server-authoritative rules, and real-time match synchronization. Players expand across a 19-region board by building Trails, Camps, and Strongholds, managing supply production, trading through banks and harbors, using Development Cards, and competing for Victory Points. The application combines an interactive React interface with ASP.NET Core and SignalR to coordinate turn flow, validate actions, and keep every connected player in sync.
 
 The current project is local-first and free to run. The backend keeps an in-memory authoritative game state, while the React client renders the shared board and sends player actions over SignalR. The goal is a playable, portfolio-quality multiplayer board game that can grow into a fuller production-style architecture over time.
+
+- Built a server-authoritative multiplayer game loop where ASP.NET Core services validate construction, trading, card actions, and scoring before broadcasting state through SignalR.
+- Modeled the island as a deterministic graph of regions, vertices, edges, and harbor routes that drives placement rules, connectivity, and board interactions.
+- Implemented core gameplay systems including room-based multiplayer setup, turn flow, supply production, building upgrades, maritime trade, and Development Cards.
 
 ## Tech Stack
 
@@ -30,6 +34,25 @@ Karo uses a **modern illustrated tabletop** art direction: soft neutral applicat
 The stable 2D renderer is the primary visual presentation. It uses a hybrid local asset system: original SVG icons for scalable resources and actions, transparent WebP illustrations for pieces and Development Cards, and reusable WebP terrain surfaces layered beneath the existing SVG board geometry. Versioned SVG sources remain beside the raster exports. See the [asset style guide](docs/asset-style-guide.md) and [asset license ledger](docs/asset-licenses.md).
 
 The experimental 3D renderer remains available for future exploration, but it is not the supported visual baseline. Optional GLB mappings are reserved in the manifest; the current 3D scene still uses procedural fallbacks and is documented honestly as experimental.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/karo-multiplayer-lobby.png" alt="Karo multiplayer lobby showing Rowan, Mira, Kellan, and Dorian connected in a private room with ready states"><br><b>Multiplayer Lobby</b><br><sub>Room-based match setup, player seating, and ready-state flow.</sub></td>
+    <td width="50%"><img src="docs/screenshots/karo-mid-game-overview.png" alt="Karo mid-game match showing the shared 19-region island, player standings, Supplies, construction networks, and active turn context"><br><b>Mid-game Overview</b><br><sub>The shared board, player standings, resources, and active turn context.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/karo-trail-construction.png" alt="Karo board close-up with a legal Trail target highlighted and a construction confirmation showing cost and remaining pieces"><br><b>Trail Construction</b><br><sub>Placement validation and action confirmation on the island graph.</sub></td>
+    <td width="50%"><img src="docs/screenshots/karo-maritime-trade.png" alt="Karo Maritime Trade drawer showing an owned Wood harbor, a 2-to-1 exchange route, Supply selectors, and player trade controls"><br><b>Maritime Trade</b><br><sub>Specific harbor routing and resource conversion decisions.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/karo-development-cards.png" alt="Karo private Development Cards drawer with a compact purchase strip, illustrated Knight, Year of Plenty, Road Building, and Victory Point cards, labeled selectors, and distinct playable, same-turn locked, and passive states"><br><b>Development Cards</b><br><sub>Private card actions, timing rules, and Supply choices in a responsive tabletop hand.</sub></td>
+    <td width="50%"><img src="docs/screenshots/karo-supply-production.png" alt="Karo match after a dice roll with producing regions highlighted, updated inventories, and production events in the Game Log"><br><b>Supply Production</b><br><sub>Dice production connected to regions, inventories, and the shared event feed.</sub></td>
+  </tr>
+</table>
+
+These images are retained as portfolio media and can be refreshed manually from representative in-game states when the UI changes.
 
 ## Features
 
@@ -95,6 +118,7 @@ Trail connectivity note: paid Trails, Road Building Trails, and valid-edge previ
 - ✅ Implemented: Year of Plenty adds exactly 2 selected supplies
 - ✅ Implemented: Monopoly transfers the selected supply from opponents
 - ✅ Implemented: Victory Point cards stay hidden and count toward win calculation
+- ✅ Implemented: responsive private-hand drawer with illustrated cards, exact lock reasons, purchase affordability, and card-specific controls
 - ✅ Implemented: Road Building can place up to 2 free Trails, consumes physical Trail pieces, and updates Longest Trail
 
 ### Trading
@@ -240,7 +264,7 @@ Development Cards cannot be bought or played during setup. Action Development Ca
 
 The Development Card deck is finite and server-owned: 14 Knights, 2 Road Building, 2 Year of Plenty, 2 Monopoly, and 5 Victory Point cards. Buying a card removes the top card from the deck. If the deck is empty, purchases are blocked. Victory Point cards are passive, stay hidden from opponents, and count toward the owner's score immediately.
 
-The Cards drawer shows exact purchase affordability for Wool, Grain, and Stone, deck availability, and one clear playability state per owned card. Invalid cards cannot open Warden, resource-selection, or free-Trail flows. Road Building also requires a remaining physical Trail and at least one legal placement before the card is consumed. Victory Point cards have no Play action and remain private. As with Trade, frontend availability is advisory and every purchase or play is revalidated atomically by the server.
+The Development Cards drawer presents a compact deck-and-cost purchase strip followed by the current player's private illustrated hand. Cards use explicit playable, same-turn locked, pending-action, already-played, and passive states. Year of Plenty keeps two labeled Supply selectors with a live selection summary; Monopoly keeps one; Knight continues into the Warden board flow; Road Building continues into legal Trail placement; and Victory Point cards expose no fake Play action. A balanced two-column hand is used on tablet and desktop, with one column on mobile. Invalid cards cannot open Warden, resource-selection, or free-Trail flows. Road Building also requires a remaining physical Trail and at least one legal placement before the card is consumed. As with Trade, frontend availability is advisory and every purchase or play is revalidated atomically by the server.
 
 Largest Army scoring is tied to played Knight cards. The first player with at least 3 played Knights gains +2 Victory Points. Another player can take Largest Army only by playing strictly more Knights than the current holder; ties do not transfer the bonus. Bought but unplayed Knight cards do not count.
 
@@ -267,11 +291,11 @@ The backend owns game state and rule validation. The frontend renders the curren
 
 ### Hybrid game assets
 
-`Karo.Client/src/assets/game/gameAssets.ts` is the typed source of truth for resource, action, status, piece, card, terrain, and harbor artwork. Reusable `ResourceIcon`, `TerrainSymbol`, `ResourceAmount`, `ResourceStripItem`, `ResourceInlineSummary`, `ResourceCost`, `ActionIcon`, `PieceAsset`, `DevelopmentCardArtwork`, and `HarborIcon` components provide accessible labels and production-safe fallbacks. Exhaustive TypeScript mappings make missing enum assets a build failure instead of a silent blank.
+`Karo.Client/src/assets/game/gameAssets.ts` is the typed source of truth for resource, action, status, piece, card, terrain, and harbor artwork. Reusable `ResourceIcon`, `TerrainSymbol`, `ResourceAmount`, `ResourceStripItem`, `ResourceInlineSummary`, `ResourceCost`, `ActionIcon`, `PieceAsset`, `DevelopmentCardArtwork`, and `HarborIcon` components provide accessible labels and production-safe fallbacks. Exhaustive TypeScript mappings make missing enum assets a build failure instead of a silent blank. Development Cards use a cohesive symbolic family whose Warden crest, bounty basket, connected Trails, prestige seal, and resource-convergence emblem communicate each mechanic at card scale.
 
 WebP files are exported from maintainable `*.source.svg` files with `pnpm render:assets`. The five Supply symbols now share a filled illustrated style. Supply strips, inventory drawers, costs, trade summaries, Development Card purchase states, Warden discard controls, and development-only resource controls use the same icon-first presentation with accessible names and tooltips. Native select options and clear validation messages intentionally retain resource text. Board tiles use larger symbols without duplicate permanent names; both renderer legends are icon-only and accessible; and the Warden uses an original hooded sentinel silhouette. The stable 2D renderer never loads 3D models.
 
-The asset system is production-safe but the art pipeline remains iterative. Camp, Stronghold, terrain surfaces, and Development Card illustrations are version-one replaceable repository art, not final commissioned artwork. The asset manifest intentionally keeps future replacement isolated from gameplay code.
+The asset system is production-safe but the art pipeline remains iterative. Camp, Stronghold, and terrain surfaces are version-one replaceable repository art, not final commissioned artwork. Development Cards now use refined mechanic-led repository illustrations, while the asset manifest keeps any future replacement isolated from gameplay code.
 
 ### Visual system
 
@@ -547,16 +571,18 @@ Board generation hardening is implemented: the supported map is the standard com
 - [Implemented] Side-panel information hierarchy pass for player rail and current-action panel
 - [Implemented] Icon-first side-panel redesign with expandable player details and context-specific setup, roll, Warden, card-effect, and finished-state artwork
 - [Implemented] Proactive Trade and Development Card availability with exact disabled reasons
+- [Implemented] Responsive tabletop Development Cards drawer with compact purchase state, private-hand summary, card-specific controls, and passive hidden-VP presentation
 - [Implemented] Direct board construction with proactive legality, affordability, and physical-piece gating plus compact confirmation
 - [Implemented] Focused match hierarchy polish for player summaries, current-action states, board toolbar, and command dock grouping
 - [Implemented] Hybrid SVG and WebP game-asset manifest, cohesive Supply/status symbols, icon-first resource presentation across gameplay controls, refined Warden and harbor integration, reusable components, source art, and license documentation
-- [Partial] Camp, Stronghold, terrain, and Development Card illustrations are version-one replaceable art pending a future final illustration pass
+- [Partial] Camp, Stronghold, and terrain illustrations are version-one replaceable art pending a future final illustration pass
+- [Implemented] Premium symbolic Development Card family with crop-safe SVG sources, optimized WebP exports, and a balanced two-column portfolio layout
 - [Experimental] Optional GLB model slots; the current 3D renderer still uses procedural fallbacks
 - [Implemented] Visual design audit document for theme and board artwork
 - 🟡 Board interaction polish
 - ✅ User-facing validation and error feedback
 - ⏳ Animations and feedback
-- ⏳ Screenshots
+- [Implemented] Curated six-image portfolio screenshot gallery
 
 ### Phase 5 — Persistence / Portfolio Polish
 
@@ -574,6 +600,8 @@ Board generation hardening is implemented: the supported map is the standard com
 - ⏳ Replay/event history
 - ⏳ Custom Karo cards
 - ⏳ Expansions/custom modes
+
+Detailed current status and the concise phase roadmap are available in [feature status](docs/feature-status.md) and [roadmap](docs/roadmap.md).
 
 ## Collaboration Guide
 

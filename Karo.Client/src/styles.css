@@ -6317,7 +6317,7 @@ select:focus {
   margin: 0.65rem 0 0;
 }
 
-.development-cost-grid span {
+.development-cost-grid > span {
   display: grid;
   gap: 0.15rem;
   min-width: 0;
@@ -6329,7 +6329,7 @@ select:focus {
   font-size: 0.72rem;
 }
 
-.development-cost-grid span[data-affordable="false"] {
+.development-cost-grid > span[data-affordable="false"] {
   border-color: rgba(154, 65, 48, 0.34);
   background: rgba(255, 237, 229, 0.72);
   color: #8c3f32;
@@ -6338,6 +6338,15 @@ select:focus {
 .development-cost-grid b {
   color: var(--karo-ink);
   font-size: 0.76rem;
+}
+
+.development-cost-grid > span > small {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--karo-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .development-missing-list,

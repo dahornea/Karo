@@ -1,1 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300"><defs><linearGradient id="b" y2="1"><stop stop-color="#33555a"/><stop offset="1" stop-color="#182c35"/></linearGradient></defs><rect width="480" height="300" rx="28" fill="url(#b)"/><circle cx="376" cy="54" r="82" fill="#d8b45f" opacity=".24"/><path d="M92 269c34-100 81-151 146-164 54-11 109 4 161 56l-25 108z" fill="#273e46"/><path d="m174 131 41-83 78 3 37 83-35 86H204z" fill="#9ca7a1" stroke="#182329" stroke-width="10"/><path d="M208 70h76l22 69-55-16-59 16z" fill="#59676a"/><path d="M217 147h80M230 170h54" stroke="#d8b45f" stroke-linecap="round" stroke-width="10"/><path d="m181 269 24-72h93l28 72" fill="#7c4d3a" stroke="#182329" stroke-width="10"/><path d="M125 245 77 121m21 18 51 101" stroke="#d8b45f" stroke-linecap="round" stroke-width="13"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" data-style="karo-card-v3" role="img" aria-labelledby="knight-title knight-desc">
+  <title id="knight-title">Knight moves the Warden and steals a Supply</title>
+  <desc id="knight-desc">A bold helmeted Warden crest stands between two position markers while a Supply token moves into its control.</desc>
+  <defs>
+    <linearGradient id="knight-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#173b48"/>
+      <stop offset="1" stop-color="#45687a"/>
+    </linearGradient>
+    <linearGradient id="knight-metal" x1="0" y1="0" x2="0.9" y2="1">
+      <stop stop-color="#d9e0dc"/>
+      <stop offset="0.48" stop-color="#8fa2a6"/>
+      <stop offset="1" stop-color="#5f747b"/>
+    </linearGradient>
+    <filter id="knight-shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#10222b" flood-opacity="0.42"/>
+    </filter>
+    <marker id="knight-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1 1l8 4-8 4z" fill="#efd17a"/>
+    </marker>
+  </defs>
+  <rect width="480" height="300" fill="url(#knight-bg)"/>
+  <circle cx="240" cy="150" r="112" fill="#f3d887" opacity="0.1"/>
+  <path d="M0 233c77-35 137-13 213 6 83 21 171 22 267-19v80H0z" fill="#102d38" opacity="0.62"/>
+
+  <g id="movement-path" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M68 181c70-78 130-94 207-76 42 10 74 1 119-38" stroke="#b8d1ce" stroke-dasharray="8 11" stroke-width="5" opacity="0.64"/>
+    <path d="M70 181c68-75 128-91 198-77" stroke="#efd17a" stroke-width="5" marker-end="url(#knight-arrow)"/>
+    <g fill="#f5e7bd" stroke="#253d48" stroke-width="6">
+      <path d="M69 156c-17 0-29 12-29 28 0 20 29 47 29 47s29-27 29-47c0-16-12-28-29-28z"/>
+      <path d="M401 43c-15 0-26 11-26 25 0 18 26 42 26 42s26-24 26-42c0-14-11-25-26-25z"/>
+    </g>
+    <circle cx="69" cy="184" r="8" fill="#d8a446" stroke="none"/>
+    <circle cx="401" cy="68" r="7" fill="#d8a446" stroke="none"/>
+  </g>
+
+  <g id="stolen-supply" filter="url(#knight-shadow)">
+    <path d="M405 190c-25 3-46 0-70-13" fill="none" stroke="#efd17a" stroke-width="5" marker-end="url(#knight-arrow)"/>
+    <circle cx="413" cy="190" r="27" fill="#e5bd62" stroke="#263e48" stroke-width="7"/>
+    <path d="M400 194c16-25 30-24 32-24-3 18-13 30-32 32 6-8 13-15 22-21" fill="none" stroke="#356850" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"/>
+  </g>
+
+  <g id="hero-warden" transform="translate(145 47)" filter="url(#knight-shadow)">
+    <path d="M22 194l21-88 45-44 57 12 31 46 6 74z" fill="#263946" stroke="#172831" stroke-linejoin="round" stroke-width="8"/>
+    <path d="M36 184l19-72 41-34 46 11 24 39 2 56z" fill="#8c4f42" opacity="0.86"/>
+    <path d="M62 34l39-25 47 18 19 48-15 61-46 28-52-26-16-63z" fill="url(#knight-metal)" stroke="#172831" stroke-linejoin="round" stroke-width="9"/>
+    <path d="M62 57l41-26 42 16 12 31-98 2z" fill="#364c57"/>
+    <path d="M58 80h99l-14 34-33 13-37-13z" fill="#1c3039"/>
+    <path d="M77 95h57" stroke="#efd17a" stroke-linecap="round" stroke-width="8"/>
+    <path d="M103 31v103" stroke="#d9e0dc" stroke-linecap="round" stroke-width="6" opacity="0.78"/>
+    <path d="M49 168l58-24 56 24-7 36H56z" fill="#586d73" stroke="#172831" stroke-linejoin="round" stroke-width="8"/>
+    <path d="M104 157l20 17-20 20-20-20z" fill="#efd17a" stroke="#263e48" stroke-width="5"/>
+  </g>
+</svg>

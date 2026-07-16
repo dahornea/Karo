@@ -1,1 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300"><defs><linearGradient id="b" y2="1"><stop stop-color="#d7a759"/><stop offset="1" stop-color="#73503a"/></linearGradient></defs><rect width="480" height="300" rx="28" fill="url(#b)"/><path d="M-20 269 155 97l84 54 75-72 186 190z" fill="#59634d"/><path d="M-10 300 160 131l75 48 80-65 181 186" fill="none" stroke="#44342a" stroke-width="55"/><path d="M-10 293 160 131l75 48 80-65 181 179" fill="none" stroke="#c18b50" stroke-width="35"/><path d="M-5 291 160 131l75 48 80-65 179 178" fill="none" stroke="#f0d189" stroke-dasharray="20 18" stroke-width="5"/><path d="m80 69 34-23 49 70-34 23z" fill="#748180" stroke="#332b26" stroke-width="8"/><path d="m367 45 23 17-75 100-23-17z" fill="#748180" stroke="#332b26" stroke-width="8"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" data-style="karo-card-v3" role="img" aria-labelledby="road-title road-desc">
+  <title id="road-title">Road Building places two Trails</title>
+  <desc id="road-desc">Two substantial timber Trail pieces connect three board posts beneath a construction hammer.</desc>
+  <defs>
+    <linearGradient id="road-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#294f4a"/>
+      <stop offset="1" stop-color="#9a5b42"/>
+    </linearGradient>
+    <linearGradient id="road-wood" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#e3a862"/>
+      <stop offset="1" stop-color="#9d5637"/>
+    </linearGradient>
+    <filter id="road-shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#20342f" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+  <rect width="480" height="300" fill="url(#road-bg)"/>
+  <circle cx="240" cy="152" r="116" fill="#f4c777" opacity="0.11"/>
+  <path d="M0 232l113-77 80 38 105-102 182 117v92H0z" fill="#1e3f3b" opacity="0.48"/>
+
+  <g id="construction-mark" transform="translate(205 35)" filter="url(#road-shadow)">
+    <circle cx="35" cy="35" r="33" fill="#f1ddb0" stroke="#314c45" stroke-width="7"/>
+    <path d="M22 22l21 9-5 12-21-9zM37 37l20 23" fill="none" stroke="#6f4734" stroke-linecap="round" stroke-linejoin="round" stroke-width="9"/>
+  </g>
+
+  <g id="hero-trails" filter="url(#road-shadow)" stroke-linecap="round">
+    <path d="M103 202L240 124" stroke="#53372b" stroke-width="38"/>
+    <path d="M240 124l137 78" stroke="#53372b" stroke-width="38"/>
+    <path d="M103 202L240 124" stroke="url(#road-wood)" stroke-width="27"/>
+    <path d="M240 124l137 78" stroke="url(#road-wood)" stroke-width="27"/>
+    <path d="M108 195l127-72M245 128l126 72" stroke="#f4c780" stroke-width="5" opacity="0.72"/>
+    <g fill="#e7d3a5" stroke="#314c45" stroke-width="7">
+      <circle cx="103" cy="202" r="18"/>
+      <circle cx="240" cy="124" r="18"/>
+      <circle cx="377" cy="202" r="18"/>
+    </g>
+    <g fill="#574338">
+      <circle cx="155" cy="172" r="5"/>
+      <circle cx="208" cy="142" r="5"/>
+      <circle cx="272" cy="142" r="5"/>
+      <circle cx="325" cy="172" r="5"/>
+    </g>
+  </g>
+</svg>

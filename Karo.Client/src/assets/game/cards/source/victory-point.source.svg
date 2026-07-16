@@ -1,1 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300"><defs><linearGradient id="b" y2="1"><stop stop-color="#d3a953"/><stop offset="1" stop-color="#754733"/></linearGradient></defs><rect width="480" height="300" rx="28" fill="url(#b)"/><circle cx="240" cy="145" r="105" fill="#f4df9e" opacity=".24"/><path d="M177 202c-46-30-67-81-54-134 47 20 77 58 78 113M303 202c46-30 67-81 54-134-47 20-77 58-78 113" fill="none" stroke="#e8cf77" stroke-linecap="round" stroke-width="18"/><path d="m240 47 24 53 58 6-43 39 12 57-51-29-51 29 12-57-43-39 58-6z" fill="#f6df89" stroke="#5e3e30" stroke-width="10"/><path d="M181 228h118" stroke="#f6df89" stroke-linecap="round" stroke-width="15"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" data-style="karo-card-v3" role="img" aria-labelledby="victory-title victory-desc">
+  <title id="victory-title">Hidden Victory Point prestige seal</title>
+  <desc id="victory-desc">A refined gold star crest rises from a dark private ribbon between simple laurels.</desc>
+  <defs>
+    <linearGradient id="victory-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#3b2944"/>
+      <stop offset="1" stop-color="#7b4550"/>
+    </linearGradient>
+    <linearGradient id="victory-gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fff0a8"/>
+      <stop offset="0.45" stop-color="#d6a642"/>
+      <stop offset="1" stop-color="#8d5b27"/>
+    </linearGradient>
+    <filter id="victory-shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="9" stdDeviation="8" flood-color="#251d2d" flood-opacity="0.48"/>
+    </filter>
+  </defs>
+  <rect width="480" height="300" fill="url(#victory-bg)"/>
+  <circle cx="240" cy="142" r="118" fill="#f5d775" opacity="0.09"/>
+  <path d="M0 235c97-25 163-14 240 5 83 20 154 20 240-8v68H0z" fill="#2a2336" opacity="0.66"/>
+
+  <g id="hero-prestige" transform="translate(130 32)" filter="url(#victory-shadow)">
+    <path d="M34 179C12 148 7 113 18 78M186 179c22-31 27-66 16-101" fill="none" stroke="#d8aa4b" stroke-linecap="round" stroke-width="8"/>
+    <path d="M31 156l-23-9M27 132l-22-16M27 106L8 85M189 156l23-9M193 132l22-16M193 106l19-21" fill="none" stroke="#f1d77d" stroke-linecap="round" stroke-width="8"/>
+    <circle cx="110" cy="109" r="86" fill="#33283d" stroke="url(#victory-gold)" stroke-width="12"/>
+    <circle cx="110" cy="109" r="64" fill="#6c3f4a" stroke="#f1d77d" stroke-width="4"/>
+    <path d="M110 49l17 36 40 5-29 27 8 40-36-20-36 20 8-40-29-27 40-5z" fill="url(#victory-gold)" stroke="#fbe8a1" stroke-linejoin="round" stroke-width="5"/>
+    <path d="M60 181h100l18 43-68-15-68 15z" fill="#d4a143" stroke="#6c402b" stroke-linejoin="round" stroke-width="7"/>
+  </g>
+
+  <g id="hidden-score" transform="translate(185 213)">
+    <path d="M0 0h110l-10 45H10z" fill="#292334" stroke="#d9aa4c" stroke-width="5"/>
+    <circle cx="55" cy="20" r="9" fill="#e5bf61"/>
+    <path d="M55 27v8" stroke="#e5bf61" stroke-linecap="round" stroke-width="6"/>
+  </g>
+</svg>

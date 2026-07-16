@@ -1,1 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300"><defs><linearGradient id="b" y2="1"><stop stop-color="#8da46a"/><stop offset="1" stop-color="#3f634d"/></linearGradient></defs><rect width="480" height="300" rx="28" fill="url(#b)"/><circle cx="96" cy="72" r="72" fill="#f2d27a" opacity=".34"/><path d="M96 241c28-92 252-92 288 0l-29 36H126z" fill="#9c653c" stroke="#3e3025" stroke-width="9"/><path d="M132 185c26-60 65-54 91-1 29-80 76-63 91 3 34-51 68-26 70 41H105c2-45 10-59 27-43z" fill="#e1bd65" stroke="#4e5137" stroke-width="8"/><g fill="none" stroke="#f7e8a6" stroke-linecap="round" stroke-width="7"><path d="M165 195V72m0 32-30-24m30 66 32-28m54 72V53m0 42-31-25m31 67 34-29m47 88V88m0 37-27-22m27 60 27-25"/></g><path d="M121 236h238" stroke="#d79b54" stroke-width="12"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" data-style="karo-card-v3" role="img" aria-labelledby="plenty-title plenty-desc">
+  <title id="plenty-title">Year of Plenty grants two Supplies</title>
+  <desc id="plenty-desc">A generous harvest basket sits beneath two glowing Supply medallions.</desc>
+  <defs>
+    <linearGradient id="plenty-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#607d4c"/>
+      <stop offset="0.55" stop-color="#9c9a4b"/>
+      <stop offset="1" stop-color="#d3a64b"/>
+    </linearGradient>
+    <linearGradient id="plenty-basket" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#d8a75e"/>
+      <stop offset="1" stop-color="#8a5334"/>
+    </linearGradient>
+    <filter id="plenty-shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#3e3c23" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="480" height="300" fill="url(#plenty-bg)"/>
+  <circle cx="240" cy="145" r="118" fill="#fff0ad" opacity="0.15"/>
+  <path d="M0 219c78-30 146-17 220 6 88 27 172 23 260-12v87H0z" fill="#52613c" opacity="0.56"/>
+
+  <g id="two-supplies" filter="url(#plenty-shadow)">
+    <circle cx="177" cy="87" r="38" fill="#f3df9d" stroke="#fff1bf" stroke-width="6"/>
+    <circle cx="303" cy="87" r="38" fill="#f3df9d" stroke="#fff1bf" stroke-width="6"/>
+    <path d="M161 91c20-31 35-29 38-29-4 24-17 38-39 40 7-10 15-19 27-28" fill="none" stroke="#3f7751" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"/>
+    <path d="M288 101l4-28 26-10 16 21-14 25z" fill="#74858a" stroke="#46575d" stroke-linejoin="round" stroke-width="6"/>
+    <path d="M230 87h20M240 77v20" stroke="#fff4c9" stroke-linecap="round" stroke-width="7"/>
+  </g>
+
+  <g id="hero-bounty" transform="translate(119 105)" filter="url(#plenty-shadow)">
+    <path d="M57 83c1-54 34-77 65-77s64 23 65 77" fill="none" stroke="#6e432e" stroke-width="13"/>
+    <path d="M76 74c-10-30-16-50-3-70M90 72c-2-36 3-61 16-78M106 70c5-38 15-61 31-74" fill="none" stroke="#f1d375" stroke-linecap="round" stroke-width="7"/>
+    <path d="M158 66l18-43 21 5 3 42" fill="#5a7c48" stroke="#365438" stroke-linejoin="round" stroke-width="7"/>
+    <path d="M25 88h194l-19 91H44z" fill="url(#plenty-basket)" stroke="#633f2c" stroke-linejoin="round" stroke-width="8"/>
+    <path d="M39 112h166M46 139h153M69 92l16 83M111 91l2 87M155 91l-12 87M194 94l-28 82" fill="none" stroke="#edc67b" stroke-width="6" opacity="0.72"/>
+    <g stroke="#503d31" stroke-width="5">
+      <circle cx="55" cy="83" r="25" fill="#d5744c"/>
+      <circle cx="116" cy="74" r="28" fill="#e7e0c2"/>
+      <path d="M93 72c0-17 11-30 25-30s25 13 25 30" fill="#e7e0c2"/>
+      <path d="M144 83l16-29 32 7 5 30z" fill="#7d8d8b" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>
